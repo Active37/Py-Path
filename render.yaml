@@ -3,7 +3,7 @@ services:
     name: pypath
     runtime: python
     plan: free
-    buildCommand: "python -m pip install -r requirements.txt && python manage.py collectstatic --no-input && python manage.py migrate --no-input && python manage.py seed_courses --if-empty"
+    buildCommand: "python -m pip install -r requirements.txt && python manage.py collectstatic --no-input && DATABASE_URL=$DATABASE_URL_UNPOOLED python manage.py migrate --no-input && DATABASE_URL=$DATABASE_URL_UNPOOLED python manage.py seed_courses --if-empty"
     startCommand: "gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120"
     healthCheckPath: /
     envVars:
@@ -12,6 +12,8 @@ services:
       - key: DJANGO_SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_UNPOOLED
         sync: false
       - key: AI_API_KEY
         sync: false

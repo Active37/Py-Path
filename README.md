@@ -1,98 +1,117 @@
 # PyPath
 
-PyPath is a Django learning platform for people learning Python and web development. Learners can create an account, follow 106 guided lessons across Python, JavaScript, and HTML/CSS, including 30 lessons each in JavaScript and HTML/CSS, take a focused 10-lesson object-oriented Python course, explore curated external learning resources, chat with a lesson-aware AI tutor, run Python practice code in a separate sandbox, and save lesson completion. Learners can also search courses and lessons, bookmark lessons, save private lesson notes, take scored learning-path quizzes, set a daily lesson goal, track their streak, and view a personal progress profile.
+**Your path to becoming a developer.**
 
-The courses cover Python fundamentals, object-oriented and advanced Python, JavaScript from language fundamentals through browser APIs and advanced patterns, and HTML/CSS from document structure through responsive, accessible production layouts. Hints and quizzes use course material; open-ended tutoring follows the current lesson language and requires an OpenAI-compatible chat-completions API.
+PyPath is a responsive Django learning platform for people learning Python and web development. It combines guided lessons, practice, progress tracking, and an AI programming tutor in one app.
 
-Quiz questions are curated by learning path and are presented on lesson pages. Each submitted attempt is saved to the signed-in learner's profile. Daily goals count newly completed lessons; a lesson can only increase the daily count once because completion is unique per learner and lesson. Bookmarks and notes are private to each learner, and the profile lets learners choose a goal of 1–10 lessons per day.
+## Features
 
-Learners can earn badges and XP (10 points per completed lesson and 2 per correct quiz answer), review a 12-week activity calendar, plan study sessions for the current week, and track milestones in guided Python, JavaScript, and HTML/CSS projects. Lesson checklists are saved in the current browser. A signed-in learner can download a learning path as a self-contained HTML file for offline reading; private notes, tutor conversations, and account data are not included. Daily reminders are in-app prompts, not email or scheduled push notifications.
+- **Guided courses:** 106 lessons across Python, object-oriented Python, JavaScript, and HTML/CSS.
+- **Practice and review:** lesson examples and exercises, quizzes, hints, bookmarks, and private lesson notes.
+- **AI tutor:** lesson-aware programming help powered by an OpenAI-compatible chat-completions API, including Gemini.
+- **Progress tracking:** completed lessons, daily goals, streaks, XP, badges, and an activity calendar.
+- **Projects and careers:** guided project milestones, assignments, study groups, community discussions, and career practice.
+- **Certificates:** earn a certificate by completing a course and passing its final assessment.
+- **Browser playground:** preview HTML, CSS, and JavaScript in a sandboxed iframe.
+- **Installable web app:** install PyPath from supported browsers; the cached app shell and offline page are available without a connection.
 
-Public profiles and leaderboard listings are opt-in. When enabled, a public profile can show the learner's chosen display name (or username), lesson count, XP, and earned badges. Email, private notes, tutor messages, and quiz answers are never shown publicly. Learners can turn public sharing off at any time.
+Learner Python code is **not** executed on the Django server. Server-side code execution is available only when an isolated, authenticated Judge0-compatible service is configured. The browser playground is for HTML, CSS, and JavaScript only; saved playground projects stay in browser storage.
 
-The browser playground runs HTML/CSS/JavaScript only inside a sandboxed iframe. The iframe has no same-origin access, blocks network/resource loading and form submission, and is not an execution service for Python or other server-side code. Saved playground projects use local browser storage; downloads are standalone HTML files. Do not run code you do not trust in your browser.
+## Technology
 
-Learner code is never executed by Django. The code runner feature requires a separately deployed, isolated Judge0-compatible service. Do not point it at an untrusted service: submitted code and input are sent to the configured runner.
+- Python 3.12+
+- Django 5.2
+- PostgreSQL (Neon-supported)
+- WhiteNoise for static files
+- Gemini or another OpenAI-compatible chat-completions provider
+- Render Blueprint for optional web hosting
+
+The app is rendered by Django; it does not have a separate React frontend or an `npm run build` step. The npm manifest is for Neon configuration tooling.
 
 ## Run locally
 
-1. Install Python 3.10 or newer.
-2. Install the project dependency:
+### Requirements
 
-   ```powershell
-   python -m pip install -r requirements.txt
-   ```
+- Python 3.12 or newer
+- PostgreSQL and an existing database
 
-3. Copy `.env.example` to `.env`, edit `DATABASE_URL` to point to an existing PostgreSQL database named `pypath`, then create its schema and start the development server:
+### Setup
 
-   ```powershell
-   python manage.py migrate
-   python manage.py seed_courses
-   python manage.py runserver
-   ```
+In PowerShell, from the project directory:
 
-4. Open http://127.0.0.1:8000 and create an account.
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+```
 
-PostgreSQL is the only supported application database in development and production. Copy `.env.example` to `.env`, set a valid PostgreSQL `DATABASE_URL`, and ensure the named database already exists. Then run `python manage.py migrate` and `python manage.py seed_courses`. The seed command is idempotent, but rerunning it resets seeded entries to their starter content; it leaves additional records untouched. Never commit the connection string or its password. Migrations create or update the schema; they do not transfer records from another database.
+Edit `.env` and set `DATABASE_URL` to your PostgreSQL connection string. For example, a local development database might use:
 
-## Learning, assessment, and community
+```dotenv
+DATABASE_URL=postgresql://postgres:your-password@localhost:5432/pypath
+```
 
-Courses, modules, lessons, final-assessment questions, starter assignments, career prompts, and plan records are stored in the database. Staff manage content in Django admin. Assign a course instructor in the course admin to let that instructor review submissions for their course.
+Set `AI_API_KEY` if you want to use the AI tutor. Never commit `.env` or share its contents.
 
-Learners can submit course assignments for instructor review, join or create study groups, post community discussions, and save private career-practice responses. Certificates are issued only after every lesson in a course is completed and its final assessment is passed; the certificate page provides a verification link and an owner-only PDF download.
+Create the schema, optionally load the starter catalog, and run Django:
 
-Free-plan enrollment is stored locally. Premium pricing and payment processing are intentionally unavailable until a payment provider is configured; the app does not collect payment details or pretend to complete a purchase.
+```powershell
+python manage.py migrate
+python manage.py seed_courses
+python manage.py runserver
+```
 
-## Install PyPath
+Open <http://127.0.0.1:8000/>.
 
-Use the **Install app** button in the site navigation. Browsers with native PWA installation show their install prompt; otherwise, the button opens device-specific instructions for installing from the browser menu or sharing to the home screen. PyPath provides 192px and 512px PWA icons plus an Apple touch icon. The offline app shell and friendly offline page are cached; lessons, account data, and other personalized pages still require a network connection. Service workers require HTTPS in production; localhost is supported for local development.
+> **Note:** `seed_courses` refreshes the starter course content. Use it for an empty development database. The deployment uses `seed_courses --if-empty` so it does not overwrite an existing catalog.
 
-## Configure AI tutoring and code execution
+## AI tutor
 
-Copy `.env.example` to `.env` in the project folder and replace the placeholder with your Gemini API key. Django loads `.env` automatically on startup. The `.env` file is ignored by Git. Never commit or share your real key.
-
-You can keep the endpoint and model in `.env` too:
+Set these variables in `.env`:
 
 ```dotenv
 AI_API_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
-AI_API_KEY=your-new-gemini-api-key
+AI_API_KEY=your-gemini-api-key
 AI_MODEL=gemini-3.5-flash-lite
 ```
 
-After editing `.env`, stop the current Django server with `Ctrl+C`, then run `python manage.py runserver` again from the project folder. Provider HTTP errors are shown in the tutor so invalid keys and unavailable model names are easier to diagnose.
+Restart Django after changing environment variables. Keep API keys on the server; do not expose them in browser code or commit them to GitHub. Tutor hints and quizzes use course material and do not require an AI API key.
 
-For code execution, deploy your own isolated Judge0-compatible service and configure its base API URL. Set the language ID to one supported by that installation:
-
-```powershell
-$env:CODE_RUNNER_URL = "https://your-private-runner.example"
-$env:CODE_RUNNER_API_KEY = "your-runner-api-key"
-$env:CODE_RUNNER_LANGUAGE_ID = "71"
-```
-
-The code runner request applies CPU, wall-time, and memory limits. Keep the runner private, authenticated, and isolated from application data. Without these settings, the app returns a clear configuration error rather than executing code unsafely or pretending the feature is active.
-
-Run the tests with:
+## Run tests
 
 ```powershell
+python manage.py check
+python manage.py makemigrations --check --dry-run
 python manage.py test tutor
 ```
 
-## Production
+Tests create and destroy a separate test database. Do not configure production credentials as the test database.
 
-Before deploying, set a unique `DJANGO_SECRET_KEY`, set `DJANGO_DEBUG=0`, configure `DJANGO_ALLOWED_HOSTS` as a comma-separated list of hostnames, and set `DATABASE_URL` to a PostgreSQL connection string. The app refuses to start without PostgreSQL in every environment. Run `python manage.py migrate` and `python manage.py seed_courses` against the target database. Use HTTPS; do not use the development server in production.
+## Deploy with Neon and Render
 
-## Free deployment (Render + Neon)
+PyPath serves the UI, backend, and static assets from one Django web service. Neon provides PostgreSQL; Render runs the web app. The repository includes [render.yaml](render.yaml) as a Render Blueprint.
 
-The included `render.yaml` deploys the Django app as a free Render web service and connects it to a Neon PostgreSQL database. The deployment builds static files, applies migrations, and seeds the starter catalog only if the database has no courses. Existing course edits are left untouched on later deploys.
+1. Push the project, including `render.yaml`, to GitHub. Ensure `.env` is **not** tracked.
+2. In Render, choose **New → Blueprint**, connect the repository, and apply the Blueprint.
+3. Configure the service environment variables:
+   - `DATABASE_URL`: Neon’s **pooled** PostgreSQL connection URL for app requests.
+   - `DATABASE_URL_UNPOOLED`: Neon’s **direct** PostgreSQL connection URL for migrations and seeding.
+   - `AI_API_KEY`: your Gemini API key.
+4. Let Render generate `DJANGO_SECRET_KEY`. The Blueprint sets `DJANGO_DEBUG=0`; Django uses the Render hostname automatically.
+5. Review the build logs. When the deployment succeeds, open the Render service URL and test the site.
 
-1. Create a free Neon project and copy its pooled PostgreSQL connection string. Keep it private; do not paste it into chat or commit it.
-2. Push this project to a private GitHub repository. The project folder must be a Git repository before Render can connect it; `.env`, local virtual environments, and collected static files are ignored.
-3. In Render, create a **Blueprint** and connect the repository containing `render.yaml`. Choose the free plan.
-4. When prompted, enter the Neon connection string as `DATABASE_URL` and your Gemini key as `AI_API_KEY`. Render generates `DJANGO_SECRET_KEY`; `DJANGO_DEBUG=0` is set by the Blueprint. The Render hostname is added to Django's allowed hosts automatically.
-5. Wait for the build to complete, then open the Render URL and create a learner account.
+The build collects static assets, applies migrations with the direct database URL, and seeds the starter catalog only if there are no courses. Local data must be restored into Neon before deployment if it has not already been migrated. Render and Neon free-tier quotas and availability can change; free services may sleep or have limited backups and should not be treated as a production uptime guarantee.
 
-This creates a fresh hosted database; local accounts, progress, and other PostgreSQL records are not copied. The course catalog is seeded automatically. To use a custom domain, add its hostname to `DJANGO_ALLOWED_HOSTS` and its HTTPS origin to `DJANGO_CSRF_TRUSTED_ORIGINS` in Render.
+For a custom domain, add its hostname to `DJANGO_ALLOWED_HOSTS` and its HTTPS origin to `DJANGO_CSRF_TRUSTED_ORIGINS` in Render.
 
-Free-tier caveats: Render's free web service sleeps after 15 minutes without traffic and can take about a minute to wake. Its filesystem is temporary, so app data must live in PostgreSQL. Neon Free is currently a permanent free plan, but has compute and storage quotas. Do not use Render's free PostgreSQL for this setup; Render documents that it expires after 30 days. These limits make this a hobby/demo deployment, not a production availability guarantee. See [Render's free service limits](https://render.com/docs/free) and [Neon's pricing](https://neon.com/pricing).
-#   P y - P a t h  
- 
+## Security and privacy
+
+- Store database URLs, Django secrets, and AI keys only in local ignored environment files or your hosting provider’s secret settings.
+- Use HTTPS and a unique `DJANGO_SECRET_KEY` in production.
+- The browser playground sandbox restricts access to the parent page and blocks external resource loading and form submission.
+- Private learner notes, tutor conversations, and quiz answers are not shown on public profiles.
+- Public profiles and leaderboard listings are opt-in.
+- Keep any code-execution service isolated from the Django app and database.
+
+See [`.env.example`](.env.example) for the environment-variable names and [Django’s deployment checklist](https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/) before running a production service.
