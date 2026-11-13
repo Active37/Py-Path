@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Admin dashboard | PyPath{% endblock %}
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow">STAFF ONLY</p>
+  <h1>Platform administration</h1>
+  <p class="lead">Manage course content, assignments, community moderation, certificates, and subscription records.</p>
+  <a class="button" href="{% url 'admin:index' %}">Open Django admin</a>
+</header>
+<section class="dashboard-links" aria-label="Platform totals">
+  <article class="feature-card"><p class="eyebrow">COURSES</p><h2>{{ course_count }}</h2></article>
+  <article class="feature-card"><p class="eyebrow">LEARNER PROFILES</p><h2>{{ learner_count }}</h2></article>
+  <article class="feature-card"><p class="eyebrow">ASSIGNMENTS</p><h2>{{ assignment_count }}</h2></article>
+  <article class="feature-card"><p class="eyebrow">SUBMISSIONS TO REVIEW</p><h2>{{ submission_count }}</h2></article>
+  <article class="feature-card"><p class="eyebrow">DISCUSSIONS</p><h2>{{ discussion_count }}</h2></article>
+  <article class="feature-card"><p class="eyebrow">CERTIFICATES</p><h2>{{ certificate_count }}</h2></article>
+  <article class="feature-card"><p class="eyebrow">SUBSCRIPTIONS</p><h2>{{ subscription_count }}</h2></article>
+</section>
+{% endblock %}

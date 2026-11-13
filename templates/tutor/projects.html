@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Guided projects | PyPath{% endblock %}
+{% block content %}
+<section class="page-head feature-page-head">
+  <p class="eyebrow">FROM PRACTICE TO PROJECTS</p>
+  <h1>Make something of your own.</h1>
+  <p class="lead">Follow small, practical milestones and turn what you’ve learned into something you can show.</p>
+</section>
+<section class="project-grid">
+  {% for project in projects %}
+    <a class="project-card" href="{% url 'project_detail' project.slug %}">
+      <div class="project-card-top"><span class="project-language">{{ project.language }}</span><span class="lesson-level">{{ project.level }}</span></div>
+      <h2>{{ project.title }}</h2>
+      <p>{{ project.summary }}</p>
+      <div class="progress-top"><span>{{ project.completed_count }} of {{ project.milestone_count }} milestones</span><strong>{% widthratio project.completed_count project.milestone_count 100 %}%</strong></div>
+      <div class="progress-track"><span style="width: {% widthratio project.completed_count project.milestone_count 100 %}%"></span></div>
+      <span class="project-cta">Open project <span aria-hidden="true">→</span></span>
+    </a>
+  {% endfor %}
+</section>
+{% endblock %}

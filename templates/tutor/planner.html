@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Study planner | PyPath{% endblock %}
+{% block content %}
+<section class="page-head feature-page-head">
+  <p class="eyebrow">A GENTLER WAY TO STAY CONSISTENT</p>
+  <h1>Plan a week that works for you.</h1>
+  <p class="lead">Short sessions count. Make a simple plan, then check things off as you go.</p>
+</section>
+<section class="planner-layout">
+  <form class="feature-card planner-form" method="post">
+    {% csrf_token %}
+    <h2>Add a study session</h2>
+    <label for="plan-title">What will you work on?</label>
+    <input id="plan-title" name="title" maxlength="120" placeholder="e.g. Practice Python loops" required>
+    <div class="planner-form-row">
+      <div><label for="plan-date">Day</label><input id="plan-date" name="planned_for" type="date" min="{{ today|date:'Y-m-d' }}" max="{{ week_end|date:'Y-m-d' }}" value="{{ today|date:'Y-m-d' }}" required></div>
+      <div><label for="plan-minutes">Time</label><select id="plan-minutes" name="target_minutes">
+        <option value="10">10 min</option><option value="15">15 min</option><option value="20" selected>20 min</option>
+        <option value="30">30 min</option><option value="45">45 min</option><option value="60">60 min</option>
+      </select></div>
+    </div>
+    <button class="button" type="submit">Add to my week <span aria-hidden="true">→</span></button>
+  </form>
+  <div class="planner-week">
+    <div class="section-heading">
+      <p class="eyebrow">THIS WEEK</p>
+      <h2>{{ week_start|date:"M j" }} – {{ week_end|date:"M j" }}</h2>
+    </div>
+    {% for day in week_days %}
+      <section class="planner-day {% if day.date == today %}is-today{% endif %}">
+        <h3>{{ day.date|date:"l" }} <small>{{ day.date|date:"M j" }}</small>{% if day.date == today %}<span>Today</span>{% endif %}</h3>
+        {% for item in day.items %}
+          <article class="plan-item {% if item.is_completed %}is-complete{% endif %}">
+            <form method="post">
+              {% csrf_token %}<input type="hidden" name="action" value="complete"><input type="hidden" name="item_id" value="{{ item.pk }}">
+              <button class="plan-check" type="submit" aria-label="{% if item.is_completed %}Reopen{% else %}Complete{% endif %} {{ item.title }}">{% if item.is_completed %}✓{% else %}○{% endif %}</button>
+            </form>
+            <span class="plan-item-copy"><strong>{{ item.title }}</strong><small>{{ item.target_minutes }} min</small></span>
+            <form method="post">
+              {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="item_id" value="{{ item.pk }}">
+              <button class="plan-delete" type="submit" aria-label="Remove {{ item.title }}">×</button>
+            </form>
+          </article>
+        {% empty %}
+          <p class="planner-empty">A little space for whatever you feel like learning.</p>
+        {% endfor %}
+      </section>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

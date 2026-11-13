@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Verify certificate | PyPath{% endblock %}
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow">PUBLIC VERIFICATION</p>
+  <h1>Certificate verified</h1>
+</header>
+<section class="curriculum">
+  <article class="feature-card">
+    <p><strong>Learner:</strong> {{ learner_name }}</p>
+    <p><strong>Course:</strong> {{ certificate.course.title }}</p>
+    <p><strong>Issued:</strong> {{ certificate.issued_at|date:"F j, Y" }}</p>
+    <p><strong>Certificate ID:</strong> <code>{{ certificate.certificate_id }}</code></p>
+    <p>This certificate record confirms the learner completed the course lessons and passed the final assessment.</p>
+  </article>
+</section>
+{% endblock %}

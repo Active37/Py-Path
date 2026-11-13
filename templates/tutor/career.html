@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Career centre | PyPath{% endblock %}
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow">BUILD YOUR NEXT STEP</p>
+  <h1>Career practice</h1>
+  <p class="lead">Practice interview answers, improve project descriptions, and save private notes. These prompts are for self-review, not automated hiring advice.</p>
+</header>
+<section class="curriculum">
+  {% for prompt in prompts %}
+    <article class="feature-card">
+      <p class="eyebrow">{{ prompt.get_category_display }}</p>
+      <h2>{{ prompt.title }}</h2>
+      <p><strong>Practice prompt:</strong> {{ prompt.prompt }}</p>
+      <p class="muted">{{ prompt.guidance }}</p>
+      <form method="post" action="{% url 'save_career_response' prompt.pk %}">
+        {% csrf_token %}
+        <label class="editor-label" for="career-answer-{{ prompt.pk }}">Your private response</label>
+        <textarea class="note-editor" id="career-answer-{{ prompt.pk }}" name="answer" minlength="20" maxlength="10000" rows="5" required>{% if prompt.user_response %}{{ prompt.user_response.answer }}{% endif %}</textarea>
+        <label class="editor-label" for="career-rating-{{ prompt.pk }}">Self-review (1–5, optional)</label>
+        <select class="note-editor" id="career-rating-{{ prompt.pk }}" name="self_rating">
+          <option value="">Not rated</option>
+          {% for rating in "12345" %}
+            <option value="{{ rating }}"{% if prompt.user_response.self_rating|stringformat:"s" == rating %} selected{% endif %}>{{ rating }}</option>
+          {% endfor %}
+        </select>
+        <label class="editor-label" for="career-reflection-{{ prompt.pk }}">What will you improve next?</label>
+        <textarea class="note-editor" id="career-reflection-{{ prompt.pk }}" name="reflection" maxlength="2000" rows="3">{% if prompt.user_response %}{{ prompt.user_response.reflection }}{% endif %}</textarea>
+        <button class="button" type="submit">Save practice</button>
+      </form>
+    </article>
+  {% empty %}
+    <p class="empty-state">Career prompts are not available yet.</p>
+  {% endfor %}
+</section>
+{% endblock %}

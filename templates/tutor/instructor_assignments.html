@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Instructor assignments | PyPath{% endblock %}
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow">INSTRUCTOR WORKSPACE</p>
+  <h1>Assignment reviews</h1>
+  <p class="lead">Review submissions for courses assigned to your instructor account.</p>
+</header>
+<section class="curriculum">
+  {% for submission in submissions %}
+    <article class="feature-card">
+      <p class="eyebrow">{{ submission.assignment.course.title }} · {{ submission.user.username }} · {{ submission.submitted_at|date:"M j, Y" }}</p>
+      <h2>{{ submission.assignment.title }}</h2>
+      <p>{{ submission.content|linebreaksbr }}</p>
+      {% if submission.status == "reviewed" %}
+        <p class="quiz-result">Current score: {{ submission.score }} / {{ submission.assignment.points }}</p>
+        {% if submission.feedback %}<p>{{ submission.feedback }}</p>{% endif %}
+      {% endif %}
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="submission_id" value="{{ submission.pk }}">
+        <label class="editor-label" for="score-{{ submission.pk }}">Score (0–{{ submission.assignment.points }})</label>
+        <input class="note-editor" id="score-{{ submission.pk }}" type="number" name="score" min="0" max="{{ submission.assignment.points }}" value="{{ submission.score|default_if_none:'' }}" required>
+        <label class="editor-label" for="feedback-{{ submission.pk }}">Feedback</label>
+        <textarea class="note-editor" id="feedback-{{ submission.pk }}" name="feedback" maxlength="5000" rows="4">{% if submission.feedback %}{{ submission.feedback }}{% endif %}</textarea>
+        <button class="button" type="submit">Save review</button>
+      </form>
+    </article>
+  {% empty %}
+    <p class="empty-state">No assignment submissions are waiting for review.</p>
+  {% endfor %}
+</section>
+{% endblock %}

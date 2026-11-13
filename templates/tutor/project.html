@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ project.title }} | PyPath{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'projects' %}">← All guided projects</a>
+<section class="page-head feature-page-head">
+  <p class="eyebrow">{{ project.language }} · {{ project.level }} PROJECT</p>
+  <h1>{{ project.title }}</h1>
+  <p class="lead">{{ project.summary }}</p>
+  <p class="project-progress-copy">{{ completed_count }} of {{ project.milestones|length }} milestones complete</p>
+</section>
+<section class="project-milestones">
+  {% for milestone in project.milestones %}
+    <article class="project-milestone {% if milestone.slug in completed %}is-complete{% endif %}">
+      <span class="milestone-number">{% if milestone.slug in completed %}✓{% else %}{{ forloop.counter|stringformat:"02d" }}{% endif %}</span>
+      <div><h2>{{ milestone.title }}</h2><p>{{ milestone.details }}</p></div>
+      <form method="post" action="{% url 'toggle_project_milestone' project.slug milestone.slug %}">
+        {% csrf_token %}
+        <button class="button button-secondary" type="submit">{% if milestone.slug in completed %}Undo{% else %}Done{% endif %}</button>
+      </form>
+    </article>
+  {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Sign in | PyPath{% endblock %}
+{% block content %}
+<section class="auth-wrap">
+  <div class="auth-card">
+    <p class="eyebrow">WELCOME BACK</p>
+    <h1>Pick up where you left off.</h1>
+    <p class="muted">Sign in to continue your Python journey.</p>
+    <form method="post" class="form-stack">
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors }}</div>{% endif %}
+      <label for="{{ form.username.id_for_label }}">Username</label>
+      {{ form.username }}
+      {% for error in form.username.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+      <label for="{{ form.password.id_for_label }}">Password</label>
+      {{ form.password }}
+      {% for error in form.password.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+      <button class="button full-width" type="submit">Sign in</button>
+    </form>
+    <p class="auth-switch">New here? <a href="{% url 'signup' %}">Create an account</a></p>
+  </div>
+</section>
+{% endblock %}

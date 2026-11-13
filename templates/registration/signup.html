@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Create your account | PyPath{% endblock %}
+{% block content %}
+<section class="auth-wrap">
+  <div class="auth-card">
+    <p class="eyebrow">START YOUR JOURNEY</p>
+    <h1>Your Python path starts here.</h1>
+    <p class="muted">Create an account to save your lessons and progress.</p>
+    <form method="post" class="form-stack">
+      {% csrf_token %}
+      {% for field in form %}
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.help_text %}<small class="help-text">{{ field.help_text|safe }}</small>{% endif %}
+        {% for error in field.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+      {% endfor %}
+      <button class="button full-width" type="submit">Create account</button>
+    </form>
+    <p class="auth-switch">Already learning with us? <a href="{% url 'login' %}">Sign in</a></p>
+  </div>  
+</section>
+{% endblock %}

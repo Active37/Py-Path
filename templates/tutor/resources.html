@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Python resources | PyPath{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'dashboard' %}">← Back to your path</a>
+<section class="resources-head">
+  <p class="eyebrow">LEARN IN THE WAY THAT WORKS FOR YOU</p>
+  <h1>Python learning resources</h1>
+  <p class="lead">Use these trusted references, tutorials, videos, and visual tools alongside the lessons. OOP-focused resources are marked clearly.</p>
+</section>
+<section class="resources-groups">
+  {% for group in resource_groups %}
+    <div class="resource-group">
+      <h2>{{ group.title }}</h2>
+      <p class="muted">{{ group.summary }}</p>
+      <div class="resource-grid">
+        {% for resource in group.resources %}
+          <article class="resource-card">
+            <span class="resource-kind">{{ resource.kind }}</span>
+            <h3>{{ resource.title }}</h3>
+            <p>{{ resource.description }}</p>
+            <a href="{{ resource.url }}" target="_blank" rel="noopener noreferrer">
+              Visit resource <span aria-hidden="true">↗</span>
+              <span class="sr-only">(opens in a new tab)</span>
+            </a>
+          </article>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+</section>
+<p class="resources-note">External sites and videos are independent resources. Check their current content and terms when you visit.</p>
+{% endblock %}

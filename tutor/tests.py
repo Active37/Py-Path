@@ -1,0 +1,905 @@
+import json
+from datetime import date, timedelta
+from io import BytesIO
+from urllib.error import HTTPError
+from unittest.mock import patch
+
+from django.contrib.auth.models import User
+from django.core.management import call_command
+from django.contrib.staticfiles.finders import find
+from django.test import TestCase, override_settings
+from django.urls import reverse
+from django.utils import timezone
+
+from .curriculum import LESSONS, get_tracks
+from .models import (
+    AssignmentSubmission,
+    CareerPracticeResponse,
+    CareerPrompt,
+    Certificate,
+    Course,
+    CourseAssessmentAttempt,
+    CourseAssignment,
+    CourseLesson,
+    DailyActivity,
+    DiscussionPost,
+    EarnedAchievement,
+    LearnerProfile,
+    LessonBookmark,
+    LessonNote,
+    LessonProgress,
+    ProjectProgress,
+    QuizAttempt,
+    StudyGroup,
+    StudyGroupMembership,
+    StudyPlanItem,
+    UserSubscription,
+    TutorMessage,
+)
+from .projects import PROJECTS
+from .quizzes import quiz_for_track
+from .resources import RESOURCE_GROUPS
+from .services import TutorServiceError, get_ai_reply, run_python_code
+from .views import make_tutor_reply
+
+
+class LearningPlatformTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        call_command("seed_courses", verbosity=0)
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="learner", password="safe-test-password")
+        self.client.force_login(self.user)
+
+    def test_seeded_course_content_is_database_backed_and_repeatable(self):
+        course_count = Course.objects.count()
+        lesson_count = CourseLesson.objects.count()
+        self.assertEqual(course_count, 12)
+        self.assertEqual(lesson_count, len(LESSONS))
+
+        lesson = CourseLesson.objects.get(slug=LESSONS[0]["slug"])
+        lesson.body = "Updated directly in the course database."
+        lesson.save(update_fields=["body"])
+        response = self.client.get(reverse("lesson", args=[lesson.slug]))
+        self.assertContains(response, "Updated directly in the course database.")
+
+        call_command("seed_courses", verbosity=0)
+        self.assertEqual(Course.objects.count(), course_count)
+        self.assertEqual(CourseLesson.objects.count(), lesson_count)
+
+    def test_seed_courses_if_empty_preserves_existing_edits(self):
+        lesson = CourseLesson.objects.get(slug=LESSONS[0]["slug"])
+        lesson.title = "Custom course title"
+        lesson.save(update_fields=["title"])
+
+        call_command("seed_courses", "--if-empty", verbosity=0)
+
+        lesson.refresh_from_db()
+        self.assertEqual(lesson.title, "Custom course title")
+
+    def test_chat_returns_lesson_specific_hint_and_quiz(self):
+        lesson = LESSONS[0]
+        hint = make_tutor_reply("give me a hint", lesson)
+        quiz = make_tutor_reply("quiz me", lesson)
+        explanation = make_tutor_reply("Explain this lesson", lesson)
+
+        self.assertIn(lesson["hint"], hint)
+        self.assertIn(lesson["quiz"], quiz)
+        self.assertIn(lesson["body"], explanation)
+
+    def test_chat_rejects_malformed_and_unknown_lesson(self):
+        url = reverse("chat")
+        malformed = self.client.post(url, data="{", content_type="application/json")
+        unknown = self.client.post(
+            url,
+            data=json.dumps({"message": "help", "lesson": "not-a-lesson"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(malformed.status_code, 400)
+        self.assertEqual(unknown.status_code, 404)
+
+    def test_completion_is_saved_once_per_user_and_lesson(self):
+        url = reverse("complete_lesson", args=[LESSONS[0]["slug"]])
+        first = self.client.post(url)
+        second = self.client.post(url)
+
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 302)
+        self.assertEqual(LessonProgress.objects.filter(user=self.user).count(), 1)
+
+    def test_learning_pages_require_sign_in(self):
+        self.client.logout()
+
+        response = self.client.get(reverse("dashboard"))
+        playground = self.client.get(reverse("web_playground"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+        self.assertEqual(playground.status_code, 302)
+
+    def test_pwa_manifest_and_service_worker_are_available(self):
+        manifest_path = find("manifest.webmanifest")
+        worker = self.client.get(reverse("service_worker"))
+
+        with open(manifest_path, encoding="utf-8") as manifest_file:
+            manifest = json.load(manifest_file)
+        self.assertEqual(manifest["display"], "standalone")
+        self.assertEqual(manifest["start_url"], "/")
+        self.assertEqual(
+            {icon["sizes"] for icon in manifest["icons"]},
+            {"192x192", "512x512"},
+        )
+        self.assertTrue(find("pwa/icon-192.png"))
+        self.assertTrue(find("pwa/icon-512.png"))
+        self.assertTrue(find("pwa/apple-touch-icon.png"))
+        self.assertEqual(worker.status_code, 200)
+        self.assertEqual(worker["Service-Worker-Allowed"], "/")
+        self.assertContains(worker, "offline.html")
+
+    def test_base_navigation_has_an_accessible_compact_menu(self):
+        self.client.logout()
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, 'aria-controls="site-navigation"')
+        self.assertContains(response, 'aria-label="Open navigation"')
+        self.assertContains(response, 'id="site-navigation"')
+
+    def test_homepage_offers_install_and_browser_instructions(self):
+        self.client.logout()
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, "Install app")
+        self.assertContains(response, 'data-install-dialog')
+        self.assertContains(response, 'rel="apple-touch-icon"')
+        self.assertContains(response, "Add to Home Screen")
+
+    def test_dashboard_and_lesson_render_for_signed_in_learner(self):
+        dashboard = self.client.get(reverse("dashboard"))
+        lesson = self.client.get(reverse("lesson", args=[LESSONS[0]["slug"]]))
+
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertContains(dashboard, LESSONS[0]["title"])
+        self.assertContains(dashboard, f"0 / {len(LESSONS)}")
+        self.assertContains(dashboard, "Object-Oriented Python")
+        self.assertEqual(lesson.status_code, 200)
+        self.assertContains(lesson, "Your Python tutor")
+        self.assertContains(lesson, "Your lesson notes")
+        self.assertContains(lesson, "Submit quiz")
+
+    def test_browser_playground_has_starter_project_and_is_sandboxed(self):
+        response = self.client.get(reverse("web_playground"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Browser playground")
+        self.assertContains(response, "Try the button")
+        self.assertContains(response, 'sandbox="allow-scripts"')
+        self.assertNotContains(response, "allow-same-origin")
+        self.assertContains(response, "Preview network access is blocked")
+
+    def test_dashboard_search_filters_lessons_and_learning_paths(self):
+        response = self.client.get(reverse("dashboard"), {"q": "variables"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Variables and data types")
+        self.assertNotContains(response, "JavaScript project: interactive checklist")
+
+    def test_activity_calendar_and_lesson_sequence_render(self):
+        lesson = LESSONS[1]
+
+        dashboard = self.client.get(reverse("dashboard"))
+        detail = self.client.get(reverse("lesson", args=[lesson["slug"]]))
+
+        self.assertContains(dashboard, "Last 12 weeks")
+        self.assertContains(detail, "Lesson 2 of 106")
+        self.assertContains(detail, reverse("lesson", args=[LESSONS[0]["slug"]]))
+        self.assertContains(detail, reverse("lesson", args=[LESSONS[2]["slug"]]))
+        self.assertContains(detail, "Lesson checklist")
+
+    def test_completing_lessons_awards_achievement_and_xp(self):
+        self.client.post(reverse("complete_lesson", args=[LESSONS[0]["slug"]]))
+
+        self.assertTrue(
+            EarnedAchievement.objects.filter(
+                user=self.user,
+                achievement_code="first-steps",
+            ).exists()
+        )
+        self.assertContains(self.client.get(reverse("profile")), "10")
+
+    def test_study_planner_is_user_scoped_and_validates_sessions(self):
+        today = timezone.localdate()
+        self.assertEqual(self.client.get(reverse("study_planner")).status_code, 200)
+        response = self.client.post(
+            reverse("study_planner"),
+            {
+                "title": "Practice loops",
+                "planned_for": today.isoformat(),
+                "target_minutes": "25",
+            },
+        )
+        self.assertRedirects(response, reverse("study_planner"))
+        item = StudyPlanItem.objects.get(user=self.user, title="Practice loops")
+        self.assertEqual(item.target_minutes, 25)
+
+        self.client.post(
+            reverse("study_planner"),
+            {"action": "complete", "item_id": str(item.pk)},
+        )
+        item.refresh_from_db()
+        self.assertTrue(item.is_completed)
+
+        next_week = today + timedelta(days=8)
+        self.client.post(
+            reverse("study_planner"),
+            {
+                "title": "Too far ahead",
+                "planned_for": next_week.isoformat(),
+                "target_minutes": "20",
+            },
+        )
+        self.assertFalse(
+            StudyPlanItem.objects.filter(user=self.user, title="Too far ahead").exists()
+        )
+
+        other_user = User.objects.create_user(username="planner-other", password="safe-test-password")
+        self.client.force_login(other_user)
+        denied = self.client.post(
+            reverse("study_planner"),
+            {"action": "delete", "item_id": str(item.pk)},
+        )
+        self.assertEqual(denied.status_code, 404)
+        self.assertTrue(StudyPlanItem.objects.filter(pk=item.pk).exists())
+
+    def test_project_milestones_are_saved_and_award_project_badge(self):
+        project = PROJECTS[0]
+        self.assertEqual(self.client.get(reverse("projects")).status_code, 200)
+        for milestone in project["milestones"]:
+            response = self.client.post(
+                reverse(
+                    "toggle_project_milestone",
+                    args=[project["slug"], milestone["slug"]],
+                )
+            )
+            self.assertEqual(response.status_code, 302)
+
+        progress = ProjectProgress.objects.get(user=self.user, project_slug=project["slug"])
+        self.assertEqual(len(progress.completed_milestones), 3)
+        self.assertTrue(
+            EarnedAchievement.objects.filter(
+                user=self.user,
+                achievement_code="project-builder",
+            ).exists()
+        )
+        self.assertEqual(
+            self.client.get(reverse("project_detail", args=[project["slug"]])).status_code,
+            200,
+        )
+
+    def test_offline_pack_downloads_only_known_learning_paths(self):
+        response = self.client.get(
+            reverse("offline_download"),
+            {"track": "Getting started"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("attachment;", response["Content-Disposition"])
+        self.assertContains(response, "Variables and data types")
+        self.assertEqual(response["Cache-Control"], "private, no-store")
+        invalid = self.client.get(reverse("offline_download"), {"track": "not-a-path"})
+        self.assertEqual(invalid.status_code, 404)
+
+    def test_public_profiles_are_opt_in_and_do_not_expose_private_fields(self):
+        profile = LearnerProfile.objects.get_or_create(user=self.user)[0]
+        profile.display_name = "Public learner"
+        profile.public_profile = True
+        profile.save()
+        self.user.email = "learner-private@example.test"
+        self.user.save(update_fields=["email"])
+        LessonProgress.objects.create(user=self.user, lesson_slug=LESSONS[0]["slug"])
+
+        response = self.client.get(
+            reverse("public_learner_profile", args=[profile.public_id])
+        )
+        board = self.client.get(reverse("leaderboard"))
+
+        self.assertContains(response, "Public learner")
+        self.assertContains(response, "10")
+        self.assertNotContains(response, self.user.email)
+        self.assertContains(board, "Public learner")
+
+        profile.public_profile = False
+        profile.save(update_fields=["public_profile"])
+        self.assertEqual(
+            self.client.get(reverse("public_learner_profile", args=[profile.public_id])).status_code,
+            404,
+        )
+        self.assertNotContains(self.client.get(reverse("leaderboard")), "Public learner")
+
+    def test_profile_can_manage_public_sharing_and_in_app_reminders(self):
+        response = self.client.post(
+            reverse("profile"),
+            {
+                "display_name": "A learner",
+                "daily_goal": "2",
+                "daily_reminders": "on",
+                "public_profile": "on",
+            },
+        )
+        self.assertRedirects(response, reverse("profile"))
+        profile = LearnerProfile.objects.get(user=self.user)
+        self.assertTrue(profile.daily_reminders)
+        self.assertTrue(profile.public_profile)
+        self.assertContains(self.client.get(reverse("profile")), str(profile.public_id))
+
+        self.client.post(
+            reverse("profile"),
+            {"display_name": "A learner", "daily_goal": "2"},
+        )
+        profile.refresh_from_db()
+        self.assertFalse(profile.daily_reminders)
+        self.assertFalse(profile.public_profile)
+
+    def test_bookmarks_are_user_scoped_and_can_be_removed(self):
+        lesson_slug = LESSONS[0]["slug"]
+        self.client.post(reverse("toggle_bookmark", args=[lesson_slug]))
+        self.assertTrue(
+            LessonBookmark.objects.filter(user=self.user, lesson_slug=lesson_slug).exists()
+        )
+        self.assertContains(self.client.get(reverse("bookmarks")), LESSONS[0]["title"])
+
+        other_user = User.objects.create_user(username="another", password="safe-test-password")
+        self.client.force_login(other_user)
+        self.assertNotContains(self.client.get(reverse("bookmarks")), LESSONS[0]["title"])
+
+        self.client.force_login(self.user)
+        self.client.post(reverse("toggle_bookmark", args=[lesson_slug]))
+        self.assertFalse(
+            LessonBookmark.objects.filter(user=self.user, lesson_slug=lesson_slug).exists()
+        )
+
+    def test_lesson_notes_are_saved_per_user(self):
+        lesson_slug = LESSONS[0]["slug"]
+
+        response = self.client.post(
+            reverse("save_note", args=[lesson_slug]),
+            {"content": "Remember to check the interpreter version."},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            LessonNote.objects.get(user=self.user, lesson_slug=lesson_slug).content,
+            "Remember to check the interpreter version.",
+        )
+        self.assertContains(self.client.get(reverse("lesson", args=[lesson_slug])), "Remember to check")
+
+    def test_quiz_scores_are_saved_and_invalid_answers_are_rejected(self):
+        lesson = LESSONS[0]
+        questions = quiz_for_track(lesson["track"])
+        answers = {f"answer_{index}": question["answer"] for index, question in enumerate(questions)}
+
+        response = self.client.post(reverse("submit_quiz", args=[lesson["slug"]]), answers)
+
+        self.assertEqual(response.status_code, 302)
+        attempt = QuizAttempt.objects.get(user=self.user, lesson_slug=lesson["slug"])
+        self.assertEqual((attempt.score, attempt.total), (len(questions), len(questions)))
+        self.assertContains(self.client.get(reverse("profile")), f"{len(questions)} / {len(questions)}")
+
+        wrong_answers = {
+            f"answer_{index}": (question["answer"] + 1) % len(question["choices"])
+            for index, question in enumerate(questions)
+        }
+        self.client.post(reverse("submit_quiz", args=[lesson["slug"]]), wrong_answers)
+        self.assertEqual(
+            QuizAttempt.objects.filter(user=self.user, score=0).count(),
+            1,
+        )
+
+        invalid = self.client.post(
+            reverse("submit_quiz", args=[lesson["slug"]]),
+            {"answer_0": "99"},
+        )
+        self.assertEqual(invalid.status_code, 302)
+        self.assertEqual(QuizAttempt.objects.filter(user=self.user).count(), 2)
+
+    def test_passing_final_assessment_and_completing_lessons_issues_verifiable_pdf(self):
+        course = Course.objects.get(slug="object-oriented-python")
+        lesson_slugs = list(
+            CourseLesson.objects.filter(module__course=course)
+            .order_by("sort_order", "id")
+            .values_list("slug", flat=True)
+        )
+        LessonProgress.objects.bulk_create(
+            [
+                LessonProgress(user=self.user, lesson_slug=slug)
+                for slug in lesson_slugs[:-1]
+            ]
+        )
+        questions = list(course.assessment_questions.all())
+        answers = {
+            f"answer_{index}": question.correct_choice
+            for index, question in enumerate(questions)
+        }
+
+        response = self.client.post(
+            reverse("submit_course_assessment", args=[course.slug]),
+            answers,
+        )
+
+        self.assertRedirects(response, reverse("course", args=[course.slug]))
+        attempt = CourseAssessmentAttempt.objects.get(user=self.user, course=course)
+        self.assertTrue(attempt.passed)
+        self.assertFalse(Certificate.objects.filter(user=self.user, course=course).exists())
+        self.client.post(reverse("complete_lesson", args=[lesson_slugs[-1]]))
+        certificate = Certificate.objects.get(user=self.user, course=course)
+        self.assertContains(self.client.get(reverse("certificates")), course.title)
+        verify_url = reverse("verify_certificate", args=[certificate.certificate_id])
+        self.assertContains(self.client.get(verify_url), "Certificate verified")
+        pdf = self.client.get(
+            reverse("download_certificate", args=[certificate.certificate_id])
+        )
+        self.assertEqual(pdf["Content-Type"], "application/pdf")
+        self.assertTrue(pdf.content.startswith(b"%PDF"))
+
+        other_user = User.objects.create_user(username="certificate-other", password="safe-test-password")
+        self.client.force_login(other_user)
+        self.assertEqual(
+            self.client.get(
+                reverse("download_certificate", args=[certificate.certificate_id])
+            ).status_code,
+            404,
+        )
+
+    def test_failed_course_assessment_does_not_issue_certificate(self):
+        course = Course.objects.get(slug="object-oriented-python")
+        questions = list(course.assessment_questions.all())
+        answers = {
+            f"answer_{index}": (question.correct_choice + 1) % len(question.choices)
+            for index, question in enumerate(questions)
+        }
+
+        self.client.post(
+            reverse("submit_course_assessment", args=[course.slug]),
+            answers,
+        )
+
+        self.assertFalse(
+            CourseAssessmentAttempt.objects.get(user=self.user, course=course).passed
+        )
+        self.assertFalse(Certificate.objects.filter(user=self.user, course=course).exists())
+
+    def test_assignment_submissions_are_saved_per_learner(self):
+        assignment = CourseAssignment.objects.get(slug="oop-library-project")
+        response = self.client.post(
+            reverse(
+                "submit_assignment",
+                args=[assignment.course.slug, assignment.slug],
+            ),
+            {"content": "I modeled books and used a library class to organize them."},
+        )
+        self.assertRedirects(response, reverse("course", args=[assignment.course.slug]))
+        submission = AssignmentSubmission.objects.get(
+            assignment=assignment,
+            user=self.user,
+        )
+        self.assertIn("library class", submission.content)
+
+        instructor = User.objects.create_user(
+            username="course-instructor",
+            password="safe-test-password",
+        )
+        assignment.course.instructor = instructor
+        assignment.course.save(update_fields=["instructor"])
+        self.client.force_login(instructor)
+        self.assertContains(
+            self.client.get(reverse("instructor_assignments")),
+            assignment.title,
+        )
+        self.client.post(
+            reverse("instructor_assignments"),
+            {
+                "submission_id": str(submission.pk),
+                "score": "90",
+                "feedback": "Clear explanation and thoughtful design.",
+            },
+        )
+        submission.refresh_from_db()
+        self.assertEqual(submission.status, AssignmentSubmission.Status.REVIEWED)
+        self.assertEqual(submission.score, 90)
+
+        other_user = User.objects.create_user(username="assignment-other", password="safe-test-password")
+        self.client.force_login(other_user)
+        self.assertEqual(
+            self.client.get(reverse("instructor_assignments")).status_code,
+            404,
+        )
+        response = self.client.get(reverse("course", args=[assignment.course.slug]))
+        self.assertNotContains(response, submission.content)
+
+    def test_community_posts_and_replies_are_saved(self):
+        response = self.client.post(
+            reverse("community"),
+            {
+                "title": "How do you organize a Python project?",
+                "body": "I am learning modules and packages. How do you decide what belongs in each file?",
+            },
+        )
+        post = DiscussionPost.objects.get(author=self.user)
+        self.assertRedirects(response, reverse("discussion_detail", args=[post.pk]))
+        self.assertContains(self.client.get(reverse("community")), post.title)
+        self.client.post(
+            reverse("discussion_detail", args=[post.pk]),
+            {"body": "I keep each module focused on one related responsibility."},
+        )
+        self.assertEqual(post.replies.count(), 1)
+        self.assertContains(
+            self.client.get(reverse("discussion_detail", args=[post.pk])),
+            "focused on one related responsibility",
+        )
+
+    def test_study_group_capacity_and_membership_are_enforced(self):
+        self.client.post(
+            reverse("study_groups"),
+            {
+                "name": "Python practice circle",
+                "description": "A small group for practicing Python together each week.",
+                "max_members": "2",
+            },
+        )
+        group = StudyGroup.objects.get(name="Python practice circle")
+        self.assertContains(self.client.get(reverse("study_groups")), group.name)
+        self.assertTrue(
+            StudyGroupMembership.objects.filter(
+                group=group,
+                user=self.user,
+                role=StudyGroupMembership.Role.ORGANIZER,
+            ).exists()
+        )
+
+        other_user = User.objects.create_user(username="group-member", password="safe-test-password")
+        self.client.force_login(other_user)
+        self.client.post(
+            reverse("toggle_study_group_membership", args=[group.slug])
+        )
+        self.assertEqual(group.memberships.count(), 2)
+
+        third_user = User.objects.create_user(username="group-full", password="safe-test-password")
+        self.client.force_login(third_user)
+        self.client.post(
+            reverse("toggle_study_group_membership", args=[group.slug])
+        )
+        self.assertEqual(group.memberships.count(), 2)
+
+    def test_career_responses_are_private_and_free_plan_is_selectable(self):
+        prompt = CareerPrompt.objects.filter(
+            category=CareerPrompt.Category.INTERVIEW,
+        ).first()
+        self.client.post(
+            reverse("save_career_response", args=[prompt.pk]),
+            {
+                "answer": "I built a small application that helped me practice data modeling.",
+                "self_rating": "4",
+                "reflection": "I will explain the tradeoffs more clearly next time.",
+            },
+        )
+        saved = CareerPracticeResponse.objects.get(user=self.user, prompt=prompt)
+        self.assertEqual(saved.self_rating, 4)
+        self.assertContains(self.client.get(reverse("career_center")), prompt.title)
+
+        self.assertContains(self.client.get(reverse("subscription_plans")), "Premium")
+        self.client.post(
+            reverse("subscription_plans"),
+            {"plan": "free"},
+        )
+        self.assertEqual(
+            UserSubscription.objects.get(user=self.user).plan.code,
+            "free",
+        )
+        self.client.post(
+            reverse("subscription_plans"),
+            {"plan": "premium"},
+        )
+        self.assertEqual(
+            UserSubscription.objects.get(user=self.user).plan.code,
+            "free",
+        )
+
+        other_user = User.objects.create_user(username="career-other", password="safe-test-password")
+        self.client.force_login(other_user)
+        response = self.client.get(reverse("career_center"))
+        self.assertNotContains(response, saved.answer)
+
+    def test_staff_dashboard_is_restricted_and_renders_platform_totals(self):
+        self.assertEqual(self.client.get(reverse("admin_dashboard")).status_code, 404)
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        self.assertContains(self.client.get(reverse("admin_dashboard")), "Platform administration")
+
+    def test_daily_goal_profile_and_streak_use_saved_completions(self):
+        lesson_slug = LESSONS[0]["slug"]
+        self.client.post(reverse("complete_lesson", args=[lesson_slug]))
+        self.client.post(reverse("complete_lesson", args=[lesson_slug]))
+
+        activity = DailyActivity.objects.get(user=self.user)
+        self.assertEqual(activity.lessons_completed, 1)
+        dashboard = self.client.get(reverse("dashboard"))
+        self.assertContains(dashboard, "Today: 1 / 1 lessons")
+        self.assertContains(dashboard, "1 day current streak")
+
+        response = self.client.post(
+            reverse("profile"),
+            {"display_name": "Python Learner", "daily_goal": "3"},
+        )
+        self.assertEqual(response.status_code, 302)
+        learner_profile = LearnerProfile.objects.get(user=self.user)
+        self.assertEqual(learner_profile.display_name, "Python Learner")
+        self.assertEqual(learner_profile.daily_goal, 3)
+
+    @patch("tutor.views.timezone.localdate", return_value=date(2025, 1, 10))
+    def test_streak_counts_consecutive_days_and_expires_after_a_gap(self, mock_localdate):
+        DailyActivity.objects.create(
+            user=self.user, activity_date=date(2025, 1, 8), lessons_completed=1
+        )
+        DailyActivity.objects.create(
+            user=self.user, activity_date=date(2025, 1, 9), lessons_completed=1
+        )
+
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "2 days current streak")
+
+        DailyActivity.objects.filter(user=self.user, activity_date=date(2025, 1, 8)).delete()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "1 day current streak")
+
+    def test_signup_creates_and_signs_in_a_learner(self):
+        self.client.logout()
+        response = self.client.post(
+            reverse("signup"),
+            {
+                "username": "new-learner",
+                "password1": "a-very-safe-password-384!",
+                "password2": "a-very-safe-password-384!",
+            },
+        )
+
+        self.assertRedirects(response, reverse("dashboard"))
+        self.assertTrue(
+            User.objects.filter(username="new-learner").exists()
+        )
+        self.assertEqual(self.client.get(reverse("dashboard")).status_code, 200)
+
+    def test_curriculum_spans_all_tracks_and_keeps_slugs_unique(self):
+        slugs = [lesson["slug"] for lesson in LESSONS]
+        tracks = get_tracks()
+        oop_lessons = next(
+            track["lessons"]
+            for track in tracks
+            if track["title"] == "Object-oriented Python"
+        )
+
+        self.assertEqual(len(LESSONS), 106)
+        self.assertEqual(len(slugs), len(set(slugs)))
+        self.assertEqual(len(tracks), 12)
+        self.assertEqual(len(oop_lessons), 10)
+        self.assertTrue(all(lesson["exercise"] for lesson in LESSONS))
+
+    def test_database_lesson_teaches_postgresql_with_environment_credentials(self):
+        lesson = CourseLesson.objects.get(slug="postgresql-and-databases")
+        self.assertEqual(lesson.title, "PostgreSQL and databases")
+        self.assertIn('os.environ["DATABASE_URL"]', lesson.example)
+        self.assertIn("VALUES (%s)", lesson.example)
+        self.assertFalse(CourseLesson.objects.filter(slug="sqlite-and-databases").exists())
+
+        response = self.client.get(reverse("lesson", args=[lesson.slug]))
+        self.assertContains(response, "psycopg")
+        self.assertNotContains(response, "sqlite3")
+
+    def test_javascript_and_html_css_courses_cover_beginner_to_advanced_topics(self):
+        tracks = {track["title"]: track["lessons"] for track in get_tracks()}
+
+        self.assertEqual(len(tracks["JavaScript"]), 30)
+        self.assertEqual(len(tracks["HTML and CSS"]), 30)
+        self.assertTrue(all(lesson["language"] == "JavaScript" for lesson in tracks["JavaScript"]))
+        self.assertTrue(all(lesson["language"] == "HTML and CSS" for lesson in tracks["HTML and CSS"]))
+        javascript_titles = {lesson["title"] for lesson in tracks["JavaScript"]}
+        html_titles = {lesson["title"] for lesson in tracks["HTML and CSS"]}
+        self.assertIn("Closures and function factories", javascript_titles)
+        self.assertIn("Fetch, HTTP status, and request cancellation", javascript_titles)
+        self.assertIn("The cascade, specificity, and inheritance", html_titles)
+        self.assertIn("Container queries and logical properties", html_titles)
+
+    def test_new_course_pages_render_their_language_specific_lessons(self):
+        javascript = self.client.get(reverse("course", args=["javascript"]))
+        html_css = self.client.get(reverse("course", args=["html-css"]))
+
+        self.assertEqual(javascript.status_code, 200)
+        self.assertContains(javascript, "JavaScript and the browser")
+        self.assertContains(javascript, "JavaScript project: interactive checklist")
+        self.assertContains(javascript, "30 LESSONS")
+        self.assertEqual(html_css.status_code, 200)
+        self.assertContains(html_css, "What HTML and CSS do")
+        self.assertContains(html_css, "Accessibility and portfolio page project")
+        self.assertContains(html_css, "30 LESSONS")
+
+    def test_non_python_lesson_uses_matching_tutor_and_hides_python_runner(self):
+        lesson = next(item for item in LESSONS if item["slug"] == "javascript-getting-started")
+
+        response = self.client.get(reverse("lesson", args=[lesson["slug"]]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Your JavaScript tutor")
+        self.assertNotContains(response, "Practice in the sandbox")
+
+    def test_oop_course_page_shows_a_complete_learning_path(self):
+        response = self.client.get(reverse("oop_course"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Object-Oriented Python")
+        self.assertContains(response, "Polymorphism and duck typing")
+        self.assertContains(response, "OOP project: a small library")
+        self.assertContains(response, "0 / 10")
+
+    def test_resources_page_includes_verified_video_and_written_resources(self):
+        response = self.client.get(reverse("resources"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Corey Schafer")
+        self.assertContains(response, "freeCodeCamp.org")
+        self.assertContains(response, "ArjanCodes")
+        self.assertContains(response, "MDN: JavaScript Guide")
+        self.assertContains(response, "MDN: Learn web development")
+        self.assertContains(response, "Python Classes")
+        self.assertContains(response, "Real Python: Object-Oriented Programming")
+        self.assertContains(response, 'rel="noopener noreferrer"')
+        self.assertGreaterEqual(
+            sum(len(group["resources"]) for group in RESOURCE_GROUPS),
+            10,
+        )
+
+    @override_settings(
+        AI_API_KEY="test-key",
+        AI_API_BASE_URL="https://provider.test/v1",
+        AI_MODEL="test-model",
+    )
+    @patch("tutor.services.urlopen")
+    def test_ai_tutor_uses_lesson_context_and_chat_history(self, mock_urlopen):
+        mock_urlopen.return_value = BytesIO(
+            json.dumps(
+                {"choices": [{"message": {"content": "A helpful explanation."}}]}
+            ).encode()
+        )
+        history = [{"role": "user", "content": "What is a variable?"}]
+
+        reply = get_ai_reply("Explain it again", LESSONS[0], history)
+
+        self.assertEqual(reply, "A helpful explanation.")
+        request = mock_urlopen.call_args.args[0]
+        payload = json.loads(request.data)
+        self.assertEqual(request.full_url, "https://provider.test/v1/chat/completions")
+        self.assertEqual(payload["messages"][1], history[0])
+        self.assertIn(LESSONS[0]["title"], payload["messages"][0]["content"])
+
+    @override_settings(
+        AI_API_KEY="test-key",
+        AI_API_BASE_URL="https://provider.test/v1",
+        AI_MODEL="test-model",
+    )
+    @patch("tutor.services.urlopen")
+    def test_ai_tutor_uses_the_current_course_language(self, mock_urlopen):
+        mock_urlopen.return_value = BytesIO(
+            json.dumps(
+                {"choices": [{"message": {"content": "Use a const binding."}}]}
+            ).encode()
+        )
+        javascript_lesson = next(
+            lesson for lesson in LESSONS if lesson["slug"] == "javascript-values-and-variables"
+        )
+
+        get_ai_reply("How do I declare a constant?", javascript_lesson, [])
+
+        payload = json.loads(mock_urlopen.call_args.args[0].data)
+        self.assertIn("Course language: JavaScript", payload["messages"][0]["content"])
+
+    @override_settings(
+        AI_API_KEY="test-secret",
+        AI_API_BASE_URL="https://provider.test/v1",
+        AI_MODEL="unavailable-model",
+    )
+    @patch("tutor.services.urlopen")
+    def test_ai_provider_errors_explain_failure_without_leaking_key(self, mock_urlopen):
+        body = json.dumps(
+            {"error": {"message": "Model unavailable for this API key."}}
+        ).encode()
+        mock_urlopen.side_effect = HTTPError(
+            "https://provider.test/v1/chat/completions",
+            404,
+            "Not Found",
+            {},
+            BytesIO(body),
+        )
+
+        with self.assertRaisesRegex(TutorServiceError, "Model unavailable") as raised:
+            get_ai_reply("Help me", LESSONS[0], [])
+
+        self.assertNotIn("test-secret", str(raised.exception))
+
+    @patch("tutor.views.get_ai_reply", return_value="Try using a for loop.")
+    def test_chat_saves_history_per_user_and_lesson(self, mock_get_ai_reply):
+        response = self.client.post(
+            reverse("chat"),
+            data=json.dumps(
+                {"message": "How do I repeat this?", "lesson": LESSONS[0]["slug"]}
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(TutorMessage.objects.filter(user=self.user).count(), 2)
+        self.assertEqual(mock_get_ai_reply.call_args.args[2], [])
+
+        self.client.post(
+            reverse("chat"),
+            data=json.dumps(
+                {"message": "And what about while?", "lesson": LESSONS[0]["slug"]}
+            ),
+            content_type="application/json",
+        )
+        history = mock_get_ai_reply.call_args.args[2]
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0]["role"], "user")
+        self.assertEqual(history[1]["role"], "assistant")
+
+    @patch("tutor.views.run_python_code", return_value={
+        "stdout": "Hello\n",
+        "stderr": "",
+        "status": "Accepted",
+    })
+    def test_code_runner_endpoint_sends_code_to_sandbox(self, mock_run_python_code):
+        response = self.client.post(
+            reverse("run_code"),
+            data=json.dumps({"code": 'print("Hello")', "stdin": ""}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["stdout"], "Hello\n")
+        mock_run_python_code.assert_called_once_with('print("Hello")', "")
+
+    def test_code_runner_endpoint_rejects_empty_code(self):
+        response = self.client.post(
+            reverse("run_code"),
+            data=json.dumps({"code": "  "}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    @override_settings(
+        CODE_RUNNER_URL="https://runner.test",
+        CODE_RUNNER_API_KEY="test-runner-key",
+        CODE_RUNNER_LANGUAGE_ID=123,
+    )
+    @patch("tutor.services.urlopen")
+    def test_sandbox_request_has_resource_limits(self, mock_urlopen):
+        mock_urlopen.return_value = BytesIO(
+            json.dumps(
+                {
+                    "stdout": "2\n",
+                    "stderr": None,
+                    "status": {"description": "Accepted"},
+                }
+            ).encode()
+        )
+
+        result = run_python_code("print(1 + 1)", "input")
+
+        self.assertEqual(result["stdout"], "2\n")
+        request = mock_urlopen.call_args.args[0]
+        payload = json.loads(request.data)
+        self.assertEqual(request.full_url, "https://runner.test/submissions?base64_encoded=false&wait=true")
+        self.assertEqual(payload["language_id"], 123)
+        self.assertEqual(payload["cpu_time_limit"], 2)
+        self.assertEqual(payload["wall_time_limit"], 5)
+        self.assertEqual(payload["memory_limit"], 128000)
+        self.assertEqual(payload["stdin"], "input")

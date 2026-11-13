@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ learner_profile.display_name|default:learner_profile.user.username }} | PyPath{% endblock %}
+{% block content %}
+<section class="public-profile-head">
+  <span class="public-avatar" aria-hidden="true">{{ learner_profile.display_name|default:learner_profile.user.username|slice:":1"|upper }}</span>
+  <p class="eyebrow">PYPATH LEARNER</p>
+  <h1>{{ learner_profile.display_name|default:learner_profile.user.username }}</h1>
+  <p>Sharing learning progress with the community.</p>
+</section>
+<section class="public-stats">
+  <article><strong>{{ learner_profile.completed_count }}</strong><span>Lessons completed</span></article>
+  <article><strong>{{ learner_profile.xp }}</strong><span>XP earned</span></article>
+</section>
+<section class="public-badges">
+  <h2>Achievements</h2>
+  <div class="achievement-grid">
+    {% for badge in learner_profile.earned_badges %}
+      <article class="achievement-card"><span aria-hidden="true">{{ badge.icon }}</span><div><strong>{{ badge.title }}</strong><small>{{ badge.description }}</small></div></article>
+    {% empty %}
+      <p class="muted">No badges unlocked yet.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

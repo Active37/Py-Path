@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10251f">
+  <title>You're offline | PyPath</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: #f5faf7; color: #172521; font: 16px/1.6 "Segoe UI", sans-serif; }
+    main { width: min(100%, 520px); padding: 42px; border: 1px solid #e1ece5; border-radius: 24px; background: white; box-shadow: 0 24px 70px rgba(20,54,41,.1); }
+    .mark { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 16px; background: #187c60; color: white; font-weight: 800; }
+    h1 { margin: 25px 0 8px; font-size: clamp(30px, 8vw, 42px); line-height: 1.1; letter-spacing: -1.5px; }
+    p { color: #6f7d77; }
+    button { margin-top: 12px; border: 0; border-radius: 12px; padding: 13px 18px; background: #187c60; color: white; font: inherit; font-weight: 700; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="mark" aria-hidden="true">Py</span>
+    <h1>Looks like you're offline.</h1>
+    <p>Your learning space will be here when you're back online. Reconnect and try again.</p>
+    <button type="button" onclick="window.location.reload()">Try again</button>
+  </main>
+</body>
+</html>

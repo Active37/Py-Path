@@ -1,0 +1,11 @@
+<div class="activity-calendar">
+  <div class="activity-grid" role="img" aria-label="Learning activity over the last 12 weeks">
+    {% for cell in calendar_cells %}
+      <span class="activity-cell activity-level-{{ cell.level }}" title="{{ cell.count }} lesson{{ cell.count|pluralize }} on {{ cell.date|date:'M j' }}" aria-hidden="true"></span>
+    {% endfor %}
+  </div>
+  <div class="activity-calendar-footer">
+    <span>Last 12 weeks</span>
+    <span class="activity-legend">Less <i class="activity-cell activity-level-0"></i><i class="activity-cell activity-level-1"></i><i class="activity-cell activity-level-2"></i><i class="activity-cell activity-level-3"></i><i class="activity-cell activity-level-4"></i> More</span>
+  </div>
+</div>

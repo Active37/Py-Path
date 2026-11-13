@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Web playground | PyPath{% endblock %}
+{% block content %}
+<section class="page-head feature-page-head playground-page-head">
+  <p class="eyebrow">YOUR BROWSER IS YOUR WORKBENCH</p>
+  <h1>Browser playground</h1>
+  <p class="lead">Build a page with HTML, CSS, and JavaScript. Your code runs in a restricted browser preview and never on the PyPath server.</p>
+</section>
+<section class="playground" data-playground>
+  <div class="playground-toolbar">
+    <div class="playground-actions">
+      <button class="button" type="button" data-playground-run>Run preview <span aria-hidden="true">▶</span></button>
+      <button class="button button-secondary" type="button" data-playground-reset>Reset starter</button>
+      <button class="playground-download" type="button" data-playground-download>Download HTML</button>
+    </div>
+    <p class="playground-status" data-playground-status aria-live="polite">Ready to build.</p>
+  </div>
+  <div class="playground-savebar">
+    <label for="snippet-name">Project name</label>
+    <input id="snippet-name" type="text" value="My web project" maxlength="60" data-snippet-name>
+    <button class="button button-secondary" type="button" data-snippet-save>Save on this device</button>
+    <label class="sr-only" for="saved-snippets">Saved projects</label>
+    <select id="saved-snippets" data-snippet-list>
+      <option value="">Saved projects…</option>
+    </select>
+    <button class="playground-utility" type="button" data-snippet-load>Load</button>
+    <button class="playground-utility" type="button" data-snippet-delete>Delete</button>
+  </div>
+  <div class="playground-workspace">
+    <section class="playground-editor-panel" aria-label="Code editor">
+      <div class="playground-panel-heading">
+        <div><p class="eyebrow">SOURCE</p><h2>Make it yours</h2></div>
+        <span class="playground-local-tag">SAVED LOCALLY</span>
+      </div>
+      <div class="editor-tabs" role="tablist" aria-label="Choose a code editor">
+        <button type="button" role="tab" aria-selected="true" data-editor-tab="html">HTML</button>
+        <button type="button" role="tab" aria-selected="false" data-editor-tab="css">CSS</button>
+        <button type="button" role="tab" aria-selected="false" data-editor-tab="js">JavaScript</button>
+      </div>
+      <label class="sr-only" for="playground-html">HTML source</label>
+      <textarea class="playground-editor is-active" id="playground-html" data-playground-editor="html" maxlength="20000" spellcheck="false" autocomplete="off" autocapitalize="off">{{ starter_html }}</textarea>
+      <label class="sr-only" for="playground-css">CSS source</label>
+      <textarea class="playground-editor" id="playground-css" data-playground-editor="css" maxlength="12000" spellcheck="false" autocomplete="off" autocapitalize="off" hidden>{{ starter_css }}</textarea>
+      <label class="sr-only" for="playground-js">JavaScript source</label>
+      <textarea class="playground-editor" id="playground-js" data-playground-editor="js" maxlength="12000" spellcheck="false" autocomplete="off" autocapitalize="off" hidden>{{ starter_js }}</textarea>
+      <p class="playground-hint">Preview network access is blocked. Use the JavaScript tab for your scripts.</p>
+    </section>
+    <section class="playground-preview-panel" aria-label="Live preview and console">
+      <div class="playground-panel-heading preview-heading">
+        <div><p class="eyebrow">SANDBOXED OUTPUT</p><h2>Preview</h2></div>
+        <span class="preview-dot" aria-hidden="true"></span>
+      </div>
+      <iframe data-playground-preview sandbox="allow-scripts" referrerpolicy="no-referrer" title="Sandboxed web project preview"></iframe>
+      <div class="playground-console-heading"><strong>Console</strong><button type="button" data-console-clear>Clear</button></div>
+      <pre class="playground-console" data-playground-console aria-live="polite">Run your project to see console messages and errors.</pre>
+    </section>
+  </div>
+  <p class="playground-footnote">For learning projects only. The preview is isolated from your PyPath account and cannot make network requests. Python practice uses the separately configured code runner.</p>
+</section>
+{% endblock %}

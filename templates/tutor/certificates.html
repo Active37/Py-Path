@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Certificates | PyPath{% endblock %}
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow">RECOGNIZE REAL PROGRESS</p>
+  <h1>Your certificates</h1>
+  <p class="lead">Certificates are issued only after completing every lesson and passing that course’s final assessment.</p>
+</header>
+<section class="curriculum">
+  {% for certificate in certificates %}
+    <article class="feature-card">
+      <p class="eyebrow">ASSESSED COURSE COMPLETION · {{ certificate.issued_at|date:"M j, Y" }}</p>
+      <h2>{{ certificate.course.title }}</h2>
+      <p>Certificate ID: <code>{{ certificate.certificate_id }}</code></p>
+      <a class="button" href="{% url 'download_certificate' certificate.certificate_id %}">Download PDF</a>
+      <a class="text-link" href="{% url 'verify_certificate' certificate.certificate_id %}">Public verification page →</a>
+    </article>
+  {% empty %}
+    <p class="empty-state">No certificates yet. Complete all lessons and pass a course final assessment to earn your first.</p>
+  {% endfor %}
+</section>
+{% endblock %}

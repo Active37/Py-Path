@@ -1,0 +1,79 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10251f">
+  <title>{% block title %}PyPath{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'app.css' %}">
+  <link rel="manifest" href="{% static 'manifest.webmanifest' %}">
+  <link rel="icon" href="{% static 'pwa/icon.svg' %}" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="{% static 'pwa/apple-touch-icon.png' %}">
+  <script src="{% static 'app.js' %}" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{% url 'home' %}"><span class="brand-mark">Py</span> PyPath</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-navigation"
+      aria-label="Open navigation" data-nav-toggle hidden>
+      <span class="nav-toggle-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+      <span data-nav-toggle-label>Menu</span>
+    </button>
+    <nav id="site-navigation" aria-label="Main navigation">
+      <button class="install-button" type="button" data-install-app>Install app</button>
+      {% if user.is_authenticated %}
+        <a href="{% url 'dashboard' %}">My learning</a>
+        <a href="{% url 'study_planner' %}">Study plan</a>
+        <a href="{% url 'projects' %}">Projects</a>
+        <a href="{% url 'web_playground' %}">Playground</a>
+        <a href="{% url 'leaderboard' %}">Leaderboard</a>
+        <a href="{% url 'community' %}">Community</a>
+        <a href="{% url 'career_center' %}">Career</a>
+        <a href="{% url 'certificates' %}">Certificates</a>
+        <a href="{% url 'subscription_plans' %}">Plans</a>
+        {% if user.is_staff %}<a href="{% url 'admin_dashboard' %}">Admin</a>{% endif %}
+        <a href="{% url 'oop_course' %}">OOP course</a>
+        <a href="{% url 'course' 'javascript' %}">JavaScript</a>
+        <a href="{% url 'course' 'html-css' %}">HTML &amp; CSS</a>
+        <a href="{% url 'bookmarks' %}">Saved lessons</a>
+        <a href="{% url 'profile' %}">Profile</a>
+        <a href="{% url 'resources' %}">Resources</a>
+        <form class="inline-form" action="{% url 'logout' %}" method="post">
+          {% csrf_token %}<button class="nav-button" type="submit">Sign out</button>
+        </form>
+      {% else %}
+        <a href="{% url 'login' %}">Sign in</a>
+        <a href="{% url 'leaderboard' %}">Leaderboard</a>
+        <a class="button button-small" href="{% url 'signup' %}">Create account</a>
+      {% endif %}
+    </nav>
+  </header>
+  <main>
+    {% if messages %}
+      <div class="messages">
+        {% for message in messages %}<p class="message">{{ message }}</p>{% endfor %}
+      </div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">Small steps. Real Python skills.</footer>
+  <p class="install-status sr-only" aria-live="polite" data-install-status></p>
+  <dialog class="install-dialog" data-install-dialog aria-labelledby="install-dialog-title">
+    <div class="install-dialog-heading">
+      <div>
+        <p class="eyebrow">YOUR LEARNING, ONE TAP AWAY</p>
+        <h2 id="install-dialog-title">Install PyPath</h2>
+      </div>
+      <button class="install-dialog-close" type="button" aria-label="Close install instructions" data-install-close>&times;</button>
+    </div>
+    <p class="muted">Add PyPath to your device for a dedicated app window and quick access from your home screen or desktop.</p>
+    <div class="install-instructions">
+      <p><strong>Chrome or Edge on a computer</strong><br>Choose the install icon in the address bar, or open the browser menu and select <strong>Install PyPath</strong>.</p>
+      <p><strong>Android</strong><br>Open the browser menu and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</p>
+      <p><strong>iPhone or iPad</strong><br>In Safari, tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>.</p>
+    </div>
+    <p class="install-browser-note">Install options depend on your browser. If you do not see one, try Chrome, Edge, or Safari on a supported device.</p>
+  </dialog>
+</body>
+</html>

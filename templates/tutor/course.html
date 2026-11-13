@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}{{ course.title }} | PyPath{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'dashboard' %}">← Back to all learning paths</a>
+<section class="course-head">
+  <div>
+    <p class="eyebrow">FOCUSED COURSE · {{ lesson_count }} LESSONS</p>
+    <h1>{{ course.title }}</h1>
+    <p class="lead">{{ course.description }}</p>
+  </div>
+  <div class="progress-card">
+    <div class="progress-top"><span>COURSE PROGRESS</span><strong>{{ completed_count }} / {{ lesson_count }}</strong></div>
+    <div class="progress-track"><span style="width: {% widthratio completed_count lesson_count 100 %}%"></span></div>
+    <small>Work through the lessons and practice as you go.</small>
+  </div>
+</section>
+<section class="course-overview">
+  <h2>What you’ll learn</h2>
+  <ul>
+    {% for objective in course.objectives %}<li>{{ objective }}</li>{% endfor %}
+  </ul>
+</section>
+<p class="course-resources"><a class="download-link" href="{% url 'offline_download' %}?track={{ course.track|urlencode }}">Download this learning path for offline study ↓</a></p>
+<section class="track-section course-lessons">
+  <h2>{{ track.lessons|length }} lessons</h2>
+  {% for module in track.modules %}
+    <div class="course-module">
+      <h3>{{ module.title }}</h3>
+      <div class="lesson-list">
+        {% for lesson in module.lessons %}
+          <a class="lesson-card" href="{% url 'lesson' lesson.slug %}">
+            <span class="lesson-number">{% if lesson.completed %}✓{% else %}{{ forloop.counter|stringformat:"02d" }}{% endif %}</span>
+            <span class="lesson-info"><span class="lesson-level">{{ lesson.level }}</span><strong>{{ lesson.title }}</strong><span class="lesson-summary">{{ lesson.summary }}</span></span>
+            <span class="lesson-arrow">→</span>
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  {% empty %}
+    <p class="muted">This course has no published modules yet.</p>
+  {% endfor %}
+</section>
+{% if assessment_questions %}
+  <section class="feature-card course-assessment">
+    <h2>Final course assessment</h2>
+    <p>Pass with at least {{ course.passing_score_percentage }}% after completing the lessons to earn a certificate.</p>
+    {% if latest_assessment %}
+      <p class="quiz-result">Latest result: {{ latest_assessment.score }} / {{ latest_assessment.total }} · {% if latest_assessment.passed %}Passed{% else %}Not passed yet{% endif %}</p>
+    {% endif %}
+    <form method="post" action="{% url 'submit_course_assessment' course.slug %}" class="quiz-form">
+      {% csrf_token %}
+      {% for question in assessment_questions %}
+        <fieldset>
+          <legend>{{ forloop.counter }}. {{ question.prompt }}</legend>
+          {% for choice in question.choices %}
+            <label class="quiz-choice">
+              <input type="radio" name="answer_{{ forloop.parentloop.counter0 }}" value="{{ forloop.counter0 }}" required>
+              <span>{{ choice }}</span>
+            </label>
+          {% endfor %}
+        </fieldset>
+      {% endfor %}
+      <button class="button" type="submit">Submit final assessment</button>
+    </form>
+  </section>
+{% endif %}
+{% if assignments %}
+  <section class="course-assignments">
+    <h2>Course assignments</h2>
+    {% for assignment in assignments %}
+      <article class="feature-card">
+        <h3>{{ assignment.title }}</h3>
+        <p>{{ assignment.description }}</p>
+        <p>{{ assignment.instructions }}</p>
+        {% if assignment.user_submission.status == "reviewed" %}
+          <p class="quiz-result">Reviewed{% if assignment.user_submission.score != None %}: {{ assignment.user_submission.score }} / {{ assignment.points }}{% endif %}</p>
+          {% if assignment.user_submission.feedback %}<p>{{ assignment.user_submission.feedback }}</p>{% endif %}
+        {% elif assignment.user_submission %}
+          <p class="quiz-result">Submission saved; awaiting instructor review.</p>
+        {% endif %}
+        <form method="post" action="{% url 'submit_assignment' course.slug assignment.slug %}">
+          {% csrf_token %}
+          <label class="editor-label" for="assignment-{{ assignment.pk }}">Your submission</label>
+          <textarea id="assignment-{{ assignment.pk }}" name="content" class="note-editor" maxlength="20000" rows="5" required>{% if assignment.user_submission %}{{ assignment.user_submission.content }}{% endif %}</textarea>
+          <button class="button" type="submit">{% if assignment.user_submission %}Update submission{% else %}Submit assignment{% endif %}</button>
+        </form>
+      </article>
+    {% endfor %}
+  </section>
+{% endif %}
+<p class="course-resources">See the <a href="{% url 'resources' %}">curated learning resources</a> for official guides, videos, and interactive references.</p>
+{% endblock %}

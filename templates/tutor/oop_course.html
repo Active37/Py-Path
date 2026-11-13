@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Object-Oriented Python course | PyPath{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'dashboard' %}">← Back to your path</a>
+<section class="course-head">
+  <div>
+    <p class="eyebrow">FOCUSED PYTHON COURSE</p>
+    <h1>Object-Oriented Python</h1>
+    <p class="lead">Learn to model real problems with classes and objects, then build flexible designs with composition, inheritance, and clear interfaces.</p>
+  </div>
+  <div class="progress-card">
+    <div class="progress-top"><span>COURSE PROGRESS</span><strong>{{ completed_count }} / {{ lesson_count }}</strong></div>
+    <div class="progress-track"><span style="width: {% widthratio completed_count lesson_count 100 %}%"></span></div>
+    <small>Work through the lessons and practice as you go.</small>
+  </div>
+</section>
+<section class="course-overview">
+  <h2>What you’ll learn</h2>
+  <ul>
+    <li>Classes, instances, attributes, and methods</li>
+    <li>Properties, encapsulation, and object invariants</li>
+    <li>Inheritance, overriding, polymorphism, and duck typing</li>
+    <li>Composition, special methods, dataclasses, and interfaces</li>
+    <li>Design and test a small object-oriented project</li>
+  </ul>
+</section>
+<section class="track-section course-lessons">
+  <h2>{{ track.lessons|length }} lessons</h2>
+  <div class="lesson-list">
+    {% for lesson in track.lessons %}
+      <a class="lesson-card" href="{% url 'lesson' lesson.slug %}">
+        <span class="lesson-number">{% if lesson.completed %}✓{% else %}{{ forloop.counter|stringformat:"02d" }}{% endif %}</span>
+        <span class="lesson-info"><span class="lesson-level">{{ lesson.level }}</span><strong>{{ lesson.title }}</strong><span class="lesson-summary">{{ lesson.summary }}</span></span>
+        <span class="lesson-arrow">→</span>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+<p class="course-resources">Want another explanation? Browse our <a href="{% url 'resources' %}">OOP books, guides, videos, and visual tools</a>.</p>
+{% endblock %}

@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}{{ lesson.title }} | PyPath{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'dashboard' %}">← Back to your path</a>
+<section class="lesson-layout">
+  <article class="lesson-content">
+    <p class="eyebrow">{{ lesson.language|default:"Python" }} · {{ lesson.level }} · LESSON</p>
+    <h1>{{ lesson.title }}</h1>
+    <p class="lead">{{ lesson.summary }}</p>
+    <div class="lesson-sequence" aria-label="Lesson navigation">
+      <span>Lesson {{ lesson_number }} of {{ lesson_total }}</span>
+      <span class="lesson-sequence-links">
+        {% if previous_lesson %}<a href="{% url 'lesson' previous_lesson.slug %}">← Previous</a>{% endif %}
+        {% if next_lesson %}<a href="{% url 'lesson' next_lesson.slug %}">Next lesson →</a>{% endif %}
+      </span>
+    </div>
+    <div class="content-card">
+      <h2>The idea</h2>
+      <p>{{ lesson.body }}</p>
+      <h2>See it in {{ lesson.language|default:"Python" }}</h2>
+      <pre class="lesson-code"><code>{{ lesson.example }}</code></pre>
+      <div class="exercise-box"><span class="exercise-label">YOUR TURN</span><p>{{ lesson.exercise }}</p></div>
+      <fieldset class="lesson-checklist" data-lesson-checklist="{{ lesson.slug }}">
+        <legend>Lesson checklist</legend>
+        <label><input type="checkbox" value="idea"> I understand the main idea</label>
+        <label><input type="checkbox" value="example"> I explored the example</label>
+        <label><input type="checkbox" value="practice"> I tried the exercise</label>
+        <small data-checklist-status aria-live="polite">Checklist saved on this device.</small>
+      </fieldset>
+      {% if lesson.language == "Python" or not lesson.language %}
+        <h2>Practice in the sandbox</h2>
+        <p>Your code runs in a separate sandbox service, not on this website server.</p>
+        <label class="editor-label" for="code-input">Python code</label>
+        <textarea id="code-input" class="code-editor" spellcheck="false" maxlength="4000">{{ lesson.example }}</textarea>
+        <label class="editor-label" for="code-stdin">Program input <span>(optional)</span></label>
+        <input id="code-stdin" class="stdin-input" type="text" maxlength="1000" placeholder="Input for input()">
+        <button id="run-code" class="button" type="button">Run code</button>
+        <pre id="code-output" class="run-output" aria-live="polite">Your result will appear here.</pre>
+      {% else %}
+        <div class="exercise-box"><span class="exercise-label">PRACTICE TIP</span><p>These lessons currently provide guided examples and exercises. For JavaScript, try your browser’s developer console; for HTML and CSS, save your work in an .html file and open it in a browser.</p></div>
+      {% endif %}
+      <form method="post" action="{% url 'toggle_bookmark' lesson.slug %}">
+        {% csrf_token %}
+        <button class="button button-secondary" type="submit">{% if is_bookmarked %}Remove saved lesson{% else %}Save lesson{% endif %}</button>
+      </form>
+      <section class="feature-card">
+        <h2>Your lesson notes</h2>
+        <form method="post" action="{% url 'save_note' lesson.slug %}">
+          {% csrf_token %}
+          <label class="editor-label" for="lesson-note">Private notes (up to 10,000 characters)</label>
+          <textarea id="lesson-note" class="note-editor" name="content" maxlength="10000" rows="6" placeholder="Write down what you want to remember...">{% if note %}{{ note.content }}{% endif %}</textarea>
+          <button class="button" type="submit">Save notes</button>
+        </form>
+      </section>
+      <section class="feature-card">
+        <h2>{{ lesson.track }} quick check</h2>
+        <p>Answer these questions to check your understanding. Your score is saved to your profile.</p>
+        {% if latest_quiz %}
+          <p class="quiz-result">Latest score: {{ latest_quiz.score }} / {{ latest_quiz.total }}</p>
+        {% endif %}
+        <form method="post" action="{% url 'submit_quiz' lesson.slug %}" class="quiz-form">
+          {% csrf_token %}
+          {% for question in quiz_questions %}
+            <fieldset>
+              <legend>{{ forloop.counter }}. {{ question.question }}</legend>
+              {% for choice in question.choices %}
+                <label class="quiz-choice">
+                  <input type="radio" name="answer_{{ forloop.parentloop.counter0 }}" value="{{ forloop.counter0 }}" required>
+                  <span>{{ choice }}</span>
+                </label>
+              {% endfor %}
+            </fieldset>
+          {% endfor %}
+          <button class="button" type="submit">Submit quiz</button>
+        </form>
+      </section>
+      {% if completed %}
+        <p class="completed-note">✓ You’ve completed this lesson.</p>
+        {% if next_lesson %}<a class="button lesson-continue" href="{% url 'lesson' next_lesson.slug %}">Continue to {{ next_lesson.title }} <span aria-hidden="true">→</span></a>{% endif %}
+      {% else %}
+        <form method="post" action="{% url 'complete_lesson' lesson.slug %}">
+          {% csrf_token %}<button class="button" type="submit">Mark lesson complete</button>
+        </form>
+      {% endif %}
+    </div>
+  </article>
+  <aside class="tutor-card">
+    <div class="tutor-heading"><span class="tutor-avatar">Py</span><div><strong>Your {{ lesson.language|default:"Python" }} tutor</strong><small>Here to help you learn</small></div></div>
+    <div class="chat-messages" id="chat-messages" aria-live="polite">
+      {% if chat_messages %}
+        {% for message in chat_messages %}
+          <div class="chat-bubble {% if message.role == 'learner' %}learner-bubble{% else %}tutor-bubble{% endif %}">{{ message.content }}</div>
+        {% endfor %}
+      {% else %}
+        <div class="chat-bubble tutor-bubble">Hi {{ user.username }}! Ask me about {{ lesson.language|default:"Python" }}, this lesson, or request a hint.</div>
+      {% endif %}
+    </div>
+    <div class="quick-prompts">
+      <button type="button" data-prompt="Give me a hint">Give me a hint</button>
+      <button type="button" data-prompt="Quiz me">Quiz me</button>
+      <button type="button" data-prompt="Show me an example">Example</button>
+    </div>
+    <form id="chat-form" class="chat-form">
+      {% csrf_token %}
+      <input id="chat-input" type="text" maxlength="2000" placeholder="Ask a {{ lesson.language|default:'Python' }} question..." aria-label="Ask your {{ lesson.language|default:'Python' }} tutor" required>
+      <button type="submit" aria-label="Send message">↑</button>
+    </form>
+    <p class="chat-note">AI tutoring needs a configured provider. Hints and quizzes work from course content.</p>
+  </aside>
+</section>
+<script>
+  (function () {
+    const form = document.getElementById("chat-form");
+    const input = document.getElementById("chat-input");
+    const messages = document.getElementById("chat-messages");
+    const csrfToken = form.querySelector("[name=csrfmiddlewaretoken]").value;
+    const lessonSlug = "{{ lesson.slug|escapejs }}";
+    const chatUrl = "{% url 'chat' %}";
+    const runUrl = "{% url 'run_code' %}";
+
+    function addMessage(text, kind) {
+      const bubble = document.createElement("div");
+      bubble.className = "chat-bubble " + kind + "-bubble";
+      bubble.textContent = text;
+      messages.appendChild(bubble);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    async function sendMessage(text) {
+      addMessage(text, "learner");
+      input.value = "";
+      input.disabled = true;
+      try {
+        const response = await fetch(chatUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
+          body: JSON.stringify({ message: text, lesson: lessonSlug })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "The tutor could not reply.");
+        addMessage(data.reply, "tutor");
+      } catch (error) {
+        addMessage(error.message || "Something went wrong. Please try again.", "tutor");
+      } finally {
+        input.disabled = false;
+        input.focus();
+      }
+    }
+
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      const text = input.value.trim();
+      if (text) sendMessage(text);
+    });
+    document.querySelectorAll("[data-prompt]").forEach(function (button) {
+      button.addEventListener("click", function () { sendMessage(button.dataset.prompt); });
+    });
+
+    const runButton = document.getElementById("run-code");
+    const codeInput = document.getElementById("code-input");
+    const stdinInput = document.getElementById("code-stdin");
+    const codeOutput = document.getElementById("code-output");
+    if (runButton && codeInput && stdinInput && codeOutput) {
+      runButton.addEventListener("click", async function () {
+        runButton.disabled = true;
+        codeOutput.textContent = "Running code...";
+        try {
+          const response = await fetch(runUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
+            body: JSON.stringify({ code: codeInput.value, stdin: stdinInput.value })
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "The code runner could not run this program.");
+          codeOutput.textContent = "Status: " + data.status + "\n\n" +
+            (data.stdout || "") + (data.stderr ? "\n" + data.stderr : "");
+        } catch (error) {
+          codeOutput.textContent = error.message || "Something went wrong. Please try again.";
+        } finally {
+          runButton.disabled = false;
+        }
+      });
+    }
+  })();
+</script>
+{% endblock %}

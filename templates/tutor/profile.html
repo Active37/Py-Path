@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Your profile | PyPath{% endblock %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">LEARNER PROFILE</p>
+  <h1>{{ profile.display_name|default:user.username }}</h1>
+  <p class="lead">Your learning progress, goals, saved lessons, and quiz results in one place.</p>
+</section>
+<section class="profile-stats">
+  <article><strong>{{ completed_count }} / {{ lesson_count }}</strong><span>Lessons completed</span></article>
+  <article><strong>{{ current_streak }} day{% if current_streak != 1 %}s{% endif %}</strong><span>Current streak</span></article>
+  <article><strong>{{ today_completed }} / {{ profile.daily_goal }}</strong><span>Today's goal</span></article>
+  <article><strong>{{ xp }}</strong><span>XP earned</span></article>
+  <article><strong>{{ bookmark_count }}</strong><span>Saved lessons</span></article>
+  <article><strong>{{ quiz_count }}</strong><span>Quiz attempts</span></article>
+</section>
+<section class="profile-columns">
+  <div class="feature-card">
+    <h2>Profile, goals, and sharing</h2>
+    <form method="post" class="profile-form">
+      {% csrf_token %}
+      <label for="display-name">Display name</label>
+      <input id="display-name" name="display_name" maxlength="80" value="{{ profile.display_name }}" placeholder="{{ user.username }}">
+      <label for="daily-goal">Daily lesson goal</label>
+      <input id="daily-goal" name="daily_goal" type="number" min="1" max="10" value="{{ profile.daily_goal }}" required>
+      <small>Choose between 1 and 10 newly completed lessons per day.</small>
+      <label class="profile-checkbox"><input type="checkbox" name="daily_reminders" {% if profile.daily_reminders %}checked{% endif %}> Show an in-app daily goal reminder</label>
+      <label class="profile-checkbox"><input type="checkbox" name="public_profile" {% if profile.public_profile %}checked{% endif %}> Share my name, lesson count, XP, and badges publicly</label>
+      <small>Your notes, messages, quiz answers, and email are never shown on your public profile.</small>
+      <button class="button" type="submit">Save profile</button>
+    </form>
+    {% if public_url %}<div class="public-share"><strong>Your public profile link</strong><a href="{{ public_url }}">{{ public_url }}</a></div>{% endif %}
+  </div>
+  <div class="feature-card">
+    <h2>Progress by learning path</h2>
+    <div class="track-progress-list">
+      {% for track in track_progress %}
+        <div>
+          <div class="progress-top"><span>{{ track.title }}</span><strong>{{ track.completed }} / {{ track.total }}</strong></div>
+          <div class="progress-track"><span style="width: {% widthratio track.completed track.total 100 %}%"></span></div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+<section class="feature-card profile-activity">
+  <h2>Learning activity · last 12 weeks</h2>
+  {% include "tutor/_activity_calendar.html" %}
+</section>
+<section class="feature-card profile-achievements">
+  <h2>Achievements</h2>
+  <div class="achievement-grid">
+    {% for achievement in earned_achievements %}
+      <article class="achievement-card"><span aria-hidden="true">{{ achievement.icon }}</span><div><strong>{{ achievement.title }}</strong><small>{{ achievement.description }}</small></div></article>
+    {% empty %}
+      <p class="muted">Complete lessons and quizzes to unlock your first badge.</p>
+    {% endfor %}
+  </div>
+</section>
+<section class="feature-card profile-quiz-history">
+  <h2>Recent quiz scores</h2>
+  {% for attempt in latest_attempts %}
+    <div class="quiz-history-row">
+      <span>{{ attempt.lesson_title }}</span>
+      <strong>{{ attempt.score }} / {{ attempt.total }}</strong>
+      <small>{{ attempt.completed_at|date:"M j, Y, P" }}</small>
+    </div>
+  {% empty %}
+    <p class="muted">Your quiz scores will appear here after your first attempt.</p>
+  {% endfor %}
+</section>
+<p class="profile-shortcut"><a href="{% url 'bookmarks' %}">Browse your saved lessons →</a></p>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Plans | PyPath{% endblock %}
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow">LEARNING PLANS</p>
+  <h1>Choose how you learn</h1>
+  <p class="lead">Plan records are ready, but payment processing is not connected. No paid plan can be purchased yet.</p>
+</header>
+<section class="dashboard-links">
+  {% for plan in plans %}
+    <article class="feature-card">
+      <p class="eyebrow">{% if current_subscription.plan_id == plan.pk %}YOUR CURRENT PLAN{% else %}PYPATH PLAN{% endif %}</p>
+      <h2>{{ plan.title }}</h2>
+      <p>{{ plan.description }}</p>
+      {% if plan.monthly_price != None %}
+        <p class="quiz-result">{% if plan.monthly_price == 0 %}Free{% else %}{{ plan.currency }} {{ plan.monthly_price }} / month{% endif %}</p>
+      {% else %}
+        <p class="muted">Price and checkout will be shown after payment integration.</p>
+      {% endif %}
+      <ul>{% for feature in plan.features %}<li>{{ feature }}</li>{% endfor %}</ul>
+      {% if plan.code == "free" %}
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="plan" value="free">
+          <button class="button" type="submit">Select free plan</button>
+        </form>
+      {% else %}
+        <p class="muted">Premium checkout is not available yet.</p>
+      {% endif %}
+    </article>
+  {% empty %}
+    <p class="empty-state">Plans are not configured yet.</p>
+  {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Study groups | PyPath{% endblock %}
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow">MAKE PROGRESS TOGETHER</p>
+  <h1>Study groups</h1>
+  <p class="lead">Create a small group or join learners working toward a shared goal.</p>
+  <a class="text-link" href="{% url 'community' %}">← Community discussions</a>
+</header>
+<section class="curriculum">
+  <form class="feature-card" method="post">
+    {% csrf_token %}
+    <h2>Create a study group</h2>
+    <label class="editor-label" for="group-name">Group name</label>
+    <input class="note-editor" id="group-name" name="name" maxlength="100" required>
+    <label class="editor-label" for="group-description">What will your group study?</label>
+    <textarea class="note-editor" id="group-description" name="description" minlength="10" maxlength="2000" rows="3" required></textarea>
+    <label class="editor-label" for="group-capacity">Maximum members (2–100)</label>
+    <input class="note-editor" id="group-capacity" type="number" name="max_members" min="2" max="100" value="30" required>
+    <button class="button" type="submit">Create group</button>
+  </form>
+  {% for group in groups %}
+    <article class="feature-card">
+      <p class="eyebrow">ORGANIZED BY {{ group.created_by.username }}</p>
+      <h2>{{ group.name }}</h2>
+      <p>{{ group.description|linebreaksbr }}</p>
+      <p class="muted">{{ group.member_count }} / {{ group.max_members }} members</p>
+      <form method="post" action="{% url 'toggle_study_group_membership' group.slug %}">
+        {% csrf_token %}
+        {% if group.is_joined %}
+          <button class="button button-secondary" type="submit">Leave group</button>
+        {% elif group.member_count < group.max_members %}
+          <button class="button" type="submit">Join group</button>
+        {% else %}
+          <button class="button" type="button" disabled>Group full</button>
+        {% endif %}
+      </form>
+    </article>
+  {% empty %}
+    <p class="empty-state">No study groups yet. Create one to get started.</p>
+  {% endfor %}
+</section>
+{% endblock %}

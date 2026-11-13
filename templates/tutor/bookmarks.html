@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Saved lessons | PyPath{% endblock %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">YOUR LIBRARY</p>
+  <h1>Saved lessons</h1>
+  <p class="lead">Keep useful lessons close and return to them whenever you need a refresher.</p>
+</section>
+<section class="curriculum">
+  <div class="lesson-list">
+    {% for lesson in saved_lessons %}
+      <a class="lesson-card" href="{% url 'lesson' lesson.slug %}">
+        <span class="lesson-number">★</span>
+        <span class="lesson-info"><span class="lesson-level">{{ lesson.track }} · {{ lesson.level }}</span><strong>{{ lesson.title }}</strong><span class="lesson-summary">{{ lesson.summary }}</span></span>
+        <span class="lesson-arrow">→</span>
+      </a>
+    {% empty %}
+      <p class="empty-state">No saved lessons yet. Use “Save lesson” on any lesson page to add it here.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

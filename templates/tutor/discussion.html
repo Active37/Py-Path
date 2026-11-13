@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ post.title }} | PyPath Community{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'community' %}">← Back to community</a>
+<section class="curriculum">
+  <article class="feature-card">
+    <p class="eyebrow">BY {{ post.author.username }} · {{ post.created_at|date:"M j, Y" }}</p>
+    <h1>{{ post.title }}</h1>
+    <p>{{ post.body|linebreaksbr }}</p>
+  </article>
+  <section class="feature-card">
+    <h2>Replies</h2>
+    {% for reply in post.replies.all %}
+      <article class="discussion-reply">
+        <p class="eyebrow">{{ reply.author.username }} · {{ reply.created_at|date:"M j, Y" }}</p>
+        <p>{{ reply.body|linebreaksbr }}</p>
+      </article>
+    {% empty %}
+      <p class="muted">No replies yet. Share a helpful thought or ask a follow-up.</p>
+    {% endfor %}
+    <form method="post">
+      {% csrf_token %}
+      <label class="editor-label" for="reply-body">Add a reply</label>
+      <textarea class="note-editor" id="reply-body" name="body" minlength="2" maxlength="5000" rows="4" required></textarea>
+      <button class="button" type="submit">Reply</button>
+    </form>
+  </section>
+</section>
+{% endblock %}

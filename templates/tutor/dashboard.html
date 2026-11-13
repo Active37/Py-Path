@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Your learning path | PyPath{% endblock %}
+{% block content %}
+<section class="dashboard-head dashboard-hero" data-reveal>
+  <div>
+    <p class="eyebrow"><span class="eyebrow-sparkle" aria-hidden="true">✦</span> YOUR LEARNING SPACE</p>
+    <h1>Hey, {{ profile.display_name|default:user.username }}. What would you like to learn?</h1>
+    <p class="muted">Your next small win is waiting. Pick up where you left off or start something new.</p>
+  </div>
+  <div class="progress-card dashboard-progress">
+    <div class="progress-top"><span>OVERALL PROGRESS</span><strong>{{ completed_count }} / {{ lesson_count }}</strong></div>
+    <div class="progress-track"><span style="width: {% widthratio completed_count lesson_count 100 %}%"></span></div>
+    <small>Every expert started with the basics.</small>
+  </div>
+</section>
+<section class="dashboard-stats" aria-label="Your learning activity" data-reveal>
+  <article class="stat-tile"><span class="stat-icon stat-icon-today" aria-hidden="true">✓</span><span><small>Today's goal</small><strong>Today: {{ today_completed }} / {{ profile.daily_goal }} lessons</strong></span></article>
+  <article class="stat-tile"><span class="stat-icon stat-icon-streak" aria-hidden="true">✦</span><span><small>Current streak</small><strong>{{ current_streak }} day{% if current_streak != 1 %}s{% endif %} current streak</strong></span></article>
+  <a class="stat-tile stat-profile-link" href="{% url 'profile' %}"><span class="stat-icon stat-icon-settings" aria-hidden="true">↗</span><span><small>Make it yours</small><strong>Profile &amp; goals</strong></span><span class="stat-tile-arrow" aria-hidden="true">→</span></a>
+</section>
+{% if today_reminder %}
+  <aside class="daily-reminder" data-reveal>
+    <span class="reminder-icon" aria-hidden="true">✦</span>
+    <span><strong>Your daily goal is within reach.</strong><small>One focused lesson is a great place to start.</small></span>
+    <a href="{% url 'study_planner' %}">Plan a session →</a>
+  </aside>
+{% endif %}
+<section class="dashboard-activity" data-reveal>
+  <div class="section-heading dashboard-section-heading">
+    <p class="eyebrow">YOUR CONSISTENCY</p>
+    <h2>Every day you show up counts</h2>
+  </div>
+  {% include "tutor/_activity_calendar.html" %}
+</section>
+<section class="dashboard-achievements" data-reveal>
+  <div class="section-heading dashboard-section-heading">
+    <p class="eyebrow">YOUR WINS</p>
+    <h2>Badges you’ve earned</h2>
+  </div>
+  <div class="achievement-grid">
+    {% for achievement in earned_achievements %}
+      <article class="achievement-card">
+        <span aria-hidden="true">{{ achievement.icon }}</span>
+        <div><strong>{{ achievement.title }}</strong><small>{{ achievement.description }}</small></div>
+      </article>
+    {% empty %}
+      <p class="muted">Your first lesson unlocks your first badge. Ready when you are!</p>
+    {% endfor %}
+    <a class="achievement-more" href="{% url 'profile' %}">View all progress →</a>
+  </div>
+</section>
+<form class="search-panel dashboard-search" method="get" action="{% url 'dashboard' %}" data-reveal>
+  <label for="course-search"><span aria-hidden="true">⌕</span> Search your learning library</label>
+  <input id="course-search" type="search" name="q" value="{{ query }}" maxlength="100" placeholder="Try “loops”, “JavaScript”, or “classes”">
+  <label for="track-filter">Learning path</label>
+  <select id="track-filter" name="track">
+    <option value="">All paths</option>
+    {% for track_name in track_names %}
+      <option value="{{ track_name }}"{% if track_name == selected_track %} selected{% endif %}>{{ track_name }}</option>
+    {% endfor %}
+  </select>
+  <button class="button" type="submit">Find a lesson <span aria-hidden="true">→</span></button>
+  {% if query or selected_track %}<a class="text-link" href="{% url 'dashboard' %}">Clear filters</a>{% endif %}
+</form>
+<section class="dashboard-links" data-reveal>
+  <div class="section-heading dashboard-section-heading">
+    <p class="eyebrow">GO A LITTLE FURTHER</p>
+    <h2>More ways to keep moving</h2>
+  </div>
+  <div class="dashboard-link-grid">
+  <a class="dashboard-link-card" href="{% url 'projects' %}">
+    <span class="lesson-level">BUILD SOMETHING REAL <span aria-hidden="true">↗</span></span>
+    <strong>Guided coding projects</strong>
+    <span>Turn concepts into portfolio-ready mini projects, one milestone at a time.</span>
+  </a>
+  <a class="dashboard-link-card" href="{% url 'web_playground' %}">
+    <span class="lesson-level">TRY IT IN YOUR BROWSER <span aria-hidden="true">↗</span></span>
+    <strong>HTML, CSS &amp; JavaScript playground</strong>
+    <span>Write a page, see it live, save it on this device, and download it.</span>
+  </a>
+  <a class="dashboard-link-card" href="{% url 'study_planner' %}">
+    <span class="lesson-level">MAKE A PLAN <span aria-hidden="true">↗</span></span>
+    <strong>Plan your learning week</strong>
+    <span>Choose a few short sessions and keep your learning habit realistic.</span>
+  </a>
+  <a class="dashboard-link-card" href="{% url 'leaderboard' %}">
+    <span class="lesson-level">LEARN TOGETHER <span aria-hidden="true">↗</span></span>
+    <strong>Community leaderboard</strong>
+    <span>Celebrate learners who have chosen to share their public progress.</span>
+  </a>
+  <a class="dashboard-link-card" href="{% url 'community' %}">
+    <span class="lesson-level">ASK, SHARE, HELP <span aria-hidden="true">↗</span></span>
+    <strong>Community discussions</strong>
+    <span>Share questions and answers with other learners.</span>
+  </a>
+  <a class="dashboard-link-card" href="{% url 'study_groups' %}">
+    <span class="lesson-level">STUDY TOGETHER <span aria-hidden="true">↗</span></span>
+    <strong>Study groups</strong>
+    <span>Join a small group or organize a shared learning goal.</span>
+  </a>
+  <a class="dashboard-link-card" href="{% url 'career_center' %}">
+    <span class="lesson-level">PREPARE FOR WORK <span aria-hidden="true">↗</span></span>
+    <strong>Career practice</strong>
+    <span>Practice interview answers and improve your project story.</span>
+  </a>
+  <a class="dashboard-link-card" href="{% url 'certificates' %}">
+    <span class="lesson-level">SHOW YOUR PROGRESS <span aria-hidden="true">↗</span></span>
+    <strong>Certificates</strong>
+    <span>View certificates earned through lesson completion and assessment.</span>
+  </a>
+  <a class="dashboard-link-card" href="{% url 'subscription_plans' %}">
+    <span class="lesson-level">LEARNING PLANS <span aria-hidden="true">↗</span></span>
+    <strong>Explore plans</strong>
+    <span>See available plans; premium billing is not connected yet.</span>
+  </a>
+  {% if user.is_staff %}
+    <a class="dashboard-link-card" href="{% url 'admin_dashboard' %}">
+      <span class="lesson-level">STAFF TOOLS <span aria-hidden="true">↗</span></span>
+      <strong>Platform administration</strong>
+      <span>Review activity and manage learning content.</span>
+    </a>
+  {% endif %}
+  {% if is_course_instructor %}
+    <a class="dashboard-link-card" href="{% url 'instructor_assignments' %}">
+      <span class="lesson-level">INSTRUCTOR TOOLS <span aria-hidden="true">↗</span></span>
+      <strong>Review assignments</strong>
+      <span>Give feedback and scores for learners in your assigned courses.</span>
+    </a>
+  {% endif %}
+  {% for course in courses %}
+    <a class="dashboard-link-card" href="{% url 'course' course.slug %}">
+      <span class="lesson-level">FOCUSED COURSE <span aria-hidden="true">↗</span></span>
+      <strong>{{ course.title }}</strong>
+      <span>{{ course.description }}</span>
+    </a>
+  {% endfor %}
+  <a class="dashboard-link-card" href="{% url 'resources' %}">
+    <span class="lesson-level">KEEP EXPLORING <span aria-hidden="true">↗</span></span>
+    <strong>Python learning resources</strong>
+    <span>Curated tutorials, visual tools, and YouTube channels</span>
+  </a>
+  </div>
+</section>
+<section class="curriculum">
+  <div class="section-heading curriculum-heading" data-reveal>
+    <p class="eyebrow">YOUR COURSE LIBRARY</p>
+    <h2>{% if query or selected_track %}Matching learning paths{% else %}Choose your next lesson{% endif %}</h2>
+    {% if query or selected_track %}<p class="muted">{{ tracks|length }} learning path{{ tracks|length|pluralize }} match your filters.</p>{% endif %}
+  </div>
+  {% for track in tracks %}
+    <div class="track-section" data-reveal>
+      <div class="track-heading"><h3>{{ track.title }}</h3><a href="{% url 'offline_download' %}?track={{ track.title|urlencode }}" class="download-link">Download for offline <span aria-hidden="true">↓</span></a></div>
+      <div class="lesson-list">
+        {% for lesson in track.lessons %}
+          <a class="lesson-card" href="{% url 'lesson' lesson.slug %}">
+            <span class="lesson-number">{% if lesson.completed %}✓{% else %}{{ forloop.parentloop.counter }}.{{ forloop.counter }}{% endif %}</span>
+            <span class="lesson-info"><span class="lesson-level">{{ lesson.level }}</span><strong>{{ lesson.title }}</strong><span class="lesson-summary">{{ lesson.summary }}</span></span>
+            <span class="lesson-arrow">→</span>
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  {% empty %}
+    <p class="muted">No matching lessons found. Try another search or learning path.</p>
+  {% endfor %}
+</section>
+{% endblock %}
