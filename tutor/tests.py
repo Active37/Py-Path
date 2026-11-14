@@ -658,6 +658,7 @@ class LearningPlatformTests(TestCase):
             reverse("signup"),
             {
                 "username": "new-learner",
+                "email": "new-learner@example.test",
                 "password1": "a-very-safe-password-384!",
                 "password2": "a-very-safe-password-384!",
             },
@@ -668,6 +669,83 @@ class LearningPlatformTests(TestCase):
             User.objects.filter(username="new-learner").exists()
         )
         self.assertEqual(self.client.get(reverse("dashboard")).status_code, 200)
+
+    def test_two_accounts_can_share_username_and_log_in_by_email(self):
+        self.client.logout()
+        first_password = "First-safe-password-384!"
+        second_password = "Second-safe-password-384!"
+        signup_url = reverse("signup")
+
+        first_response = self.client.post(
+            signup_url,
+            {
+                "username": "developer",
+                "email": "user1@example.test",
+                "password1": first_password,
+                "password2": first_password,
+            },
+        )
+        self.assertRedirects(first_response, reverse("dashboard"))
+        first_user = User.objects.get(email="user1@example.test")
+
+        self.client.logout()
+        second_response = self.client.post(
+            signup_url,
+            {
+                "username": "developer",
+                "email": "user2@example.test",
+                "password1": second_password,
+                "password2": second_password,
+            },
+        )
+        self.assertRedirects(second_response, reverse("dashboard"))
+        second_user = User.objects.get(email="user2@example.test")
+        self.assertNotEqual(first_user.pk, second_user.pk)
+
+        self.client.logout()
+        login_url = reverse("login")
+        self.assertRedirects(
+            self.client.post(
+                login_url,
+                {"username": "user1@example.test", "password": first_password},
+            ),
+            reverse("dashboard"),
+        )
+        first_user.set_password("Changed-first-password-384!")
+        first_user.save(update_fields=["password"])
+
+        self.client.logout()
+        self.assertRedirects(
+            self.client.post(
+                login_url,
+                {"username": "user2@example.test", "password": second_password},
+            ),
+            reverse("dashboard"),
+        )
+        second_user.refresh_from_db()
+        self.assertTrue(second_user.check_password(second_password))
+
+    def test_signup_rejects_case_insensitive_duplicate_email(self):
+        User.objects.create_user(
+            username="existing",
+            email="learner@example.test",
+            password="Existing-safe-password-384!",
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            reverse("signup"),
+            {
+                "username": "another-name",
+                "email": "LEARNER@example.test",
+                "password1": "Another-safe-password-384!",
+                "password2": "Another-safe-password-384!",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "An account with this email address already exists.")
+        self.assertEqual(User.objects.filter(email__iexact="learner@example.test").count(), 1)
 
     def test_curriculum_spans_all_tracks_and_keeps_slugs_unique(self):
         slugs = [lesson["slug"] for lesson in LESSONS]
@@ -903,3 +981,4 @@ class LearningPlatformTests(TestCase):
         self.assertEqual(payload["wall_time_limit"], 5)
         self.assertEqual(payload["memory_limit"], 128000)
         self.assertEqual(payload["stdin"], "input")
+        self.assertEqual(request.headers["X-auth-token"], "test-runner-key")

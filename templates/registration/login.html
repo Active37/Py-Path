@@ -9,7 +9,7 @@
     <form method="post" class="form-stack">
       {% csrf_token %}
       {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors }}</div>{% endif %}
-      <label for="{{ form.username.id_for_label }}">Username</label>
+      <label for="{{ form.username.id_for_label }}">{{ form.username.label }}</label>
       {{ form.username }}
       {% for error in form.username.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
       <label for="{{ form.password.id_for_label }}">Password</label>

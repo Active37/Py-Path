@@ -17,3 +17,11 @@ services:
         sync: false
       - key: AI_API_KEY
         sync: false
+      - key: CODE_RUNNER_URL
+        sync: false
+      - key: CODE_RUNNER_API_KEY
+        sync: false
+      - key: CODE_RUNNER_LANGUAGE_ID
+        value: "71"
+      - key: CODE_RUNNER_TIMEOUT
+        value: "30"

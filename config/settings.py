@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
@@ -48,7 +49,29 @@ AI_API_TIMEOUT = float(os.environ.get("AI_API_TIMEOUT", "20"))
 CODE_RUNNER_URL = os.environ.get("CODE_RUNNER_URL", "")
 CODE_RUNNER_API_KEY = os.environ.get("CODE_RUNNER_API_KEY", "")
 CODE_RUNNER_LANGUAGE_ID = int(os.environ.get("CODE_RUNNER_LANGUAGE_ID", "71"))
-CODE_RUNNER_TIMEOUT = float(os.environ.get("CODE_RUNNER_TIMEOUT", "15"))
+CODE_RUNNER_TIMEOUT = float(os.environ.get("CODE_RUNNER_TIMEOUT", "30"))
+if CODE_RUNNER_URL:
+    try:
+        parsed_code_runner_url = urlsplit(CODE_RUNNER_URL)
+    except ValueError as error:
+        raise ImproperlyConfigured("CODE_RUNNER_URL must be a valid HTTP(S) URL.") from error
+    if (
+        parsed_code_runner_url.scheme not in {"http", "https"}
+        or not parsed_code_runner_url.hostname
+        or parsed_code_runner_url.username
+        or parsed_code_runner_url.password
+        or parsed_code_runner_url.query
+        or parsed_code_runner_url.fragment
+    ):
+        raise ImproperlyConfigured(
+            "CODE_RUNNER_URL must contain only an HTTP(S) scheme and host, without credentials or query parameters."
+        )
+    if not DEBUG and parsed_code_runner_url.scheme != "https":
+        raise ImproperlyConfigured("CODE_RUNNER_URL must use HTTPS when DJANGO_DEBUG=0.")
+    if not DEBUG and not CODE_RUNNER_API_KEY:
+        raise ImproperlyConfigured(
+            "Set CODE_RUNNER_API_KEY before enabling the code runner in production."
+        )
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20_000
 
 INSTALLED_APPS = [
@@ -97,6 +120,23 @@ if not DATABASE_URL:
     raise ImproperlyConfigured(
         "Set DATABASE_URL to a PostgreSQL connection string in every environment."
     )
+try:
+    parsed_database_url = urlsplit(DATABASE_URL)
+    database_hostname = parsed_database_url.hostname
+except ValueError as error:
+    raise ImproperlyConfigured(
+        "DATABASE_URL is malformed; set the full PostgreSQL connection URL in the hosting environment."
+    ) from error
+if (
+    parsed_database_url.scheme not in {"postgres", "postgresql"}
+    or not database_hostname
+    or not parsed_database_url.path.strip("/")
+):
+    raise ImproperlyConfigured(
+        "DATABASE_URL must be a full PostgreSQL URL starting with "
+        "postgresql:// and containing a host and database name. "
+        "Check the hosting environment variable value."
+    )
 
 DATABASES = {
     "default": dj_database_url.parse(
@@ -108,6 +148,10 @@ DATABASES = {
 }
 if DATABASES["default"]["ENGINE"] != "django.db.backends.postgresql":
     raise ImproperlyConfigured("DATABASE_URL must use PostgreSQL.")
+
+AUTHENTICATION_BACKENDS = [
+    "tutor.auth.EmailOrLegacyUsernameBackend",
+]
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

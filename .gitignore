@@ -9,3 +9,5 @@ doc
 staticfiles/
 .neon
 node_modules/
+infra/judge0/.env
+infra/judge0/judge0.conf

@@ -54,6 +54,8 @@ DATABASE_URL=postgresql://postgres:your-password@localhost:5432/pypath
 
 Set `AI_API_KEY` if you want to use the AI tutor. Never commit `.env` or share its contents.
 
+Python execution is optional until you configure the self-hosted Judge0 service below.
+
 Create the schema, optionally load the starter catalog, and run Django:
 
 ```powershell
@@ -65,6 +67,10 @@ python manage.py runserver
 Open <http://127.0.0.1:8000/>.
 
 > **Note:** `seed_courses` refreshes the starter course content. Use it for an empty development database. The deployment uses `seed_courses --if-empty` so it does not overwrite an existing catalog.
+
+## Accounts
+
+New accounts require an email address and password. Different accounts may use the same username; use your email address to sign in. Existing accounts without an email can continue signing in with their username until an email address is added.
 
 ## AI tutor
 
@@ -102,6 +108,29 @@ PyPath serves the UI, backend, and static assets from one Django web service. Ne
 5. Review the build logs. When the deployment succeeds, open the Render service URL and test the site.
 
 The build collects static assets, applies migrations with the direct database URL, and seeds the starter catalog only if there are no courses. Local data must be restored into Neon before deployment if it has not already been migrated. Render and Neon free-tier quotas and availability can change; free services may sleep or have limited backups and should not be treated as a production uptime guarantee.
+
+## Self-hosted Python code runner
+
+PyPath sends Python submissions from Django to a separate Judge0 CE instance; it never executes learner code inside the web process. The repository includes a Docker Compose deployment in [`infra/judge0`](infra/judge0).
+
+1. Provision a dedicated, current Linux host for Judge0. Judge0 requires privileged containers for its Isolate sandbox; do not run it on the Django host or alongside databases or services containing sensitive data.
+2. Copy the files in `infra/judge0` to that host and run these commands in their directory:
+
+   ```sh
+   cp .env.example .env
+   cp judge0.conf.example judge0.conf
+   ```
+
+   Replace all sample passwords and the Judge0 authentication token with independently generated secrets. Set `JUDGE0_DOMAIN` in `.env` to a DNS name pointing at the host. Allow inbound ports 80 and 443 for Caddy; do not expose Judge0's port 2358, PostgreSQL, or Redis to the public internet.
+3. Start the services with `docker compose up -d`. Caddy obtains TLS for the configured domain and proxies to Judge0; the Judge0 API itself is not published directly. Check `docker compose logs` and verify `https://<JUDGE0_DOMAIN>/system_info` with the `X-Auth-Token` header set to your Judge0 token.
+4. Configure Django/Render with:
+   - `CODE_RUNNER_URL=https://<JUDGE0_DOMAIN>`
+   - `CODE_RUNNER_API_KEY` equal to the Judge0 `AUTHN_TOKEN`
+   - `CODE_RUNNER_LANGUAGE_ID=71` for the configured Judge0 Python runtime
+   - `CODE_RUNNER_TIMEOUT=30`
+5. Keep the token only in Django's server-side environment. Never put it in templates, browser JavaScript, or public Render variables. The code-runner API accepts only the limits enforced by PyPath; network access, callbacks, extra files, custom compiler options, and command-line arguments are disabled in the Judge0 example configuration.
+
+The bundled Judge0 setup pins a release containing the security fixes documented by Judge0. Keep Judge0 and its host patched, restrict host access, and back up the Judge0 database volume. See [Judge0's deployment guidance](https://github.com/judge0/judge0/blob/master/CHANGELOG.md#deployment-procedure) before production use.
 
 For a custom domain, add its hostname to `DJANGO_ALLOWED_HOSTS` and its HTTPS origin to `DJANGO_CSRF_TRUSTED_ORIGINS` in Render.
 

@@ -10,7 +10,6 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import transaction
@@ -29,6 +28,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
 from .achievements import ACHIEVEMENTS, refresh_achievements
 from .catalog import get_lesson, get_lessons, get_tracks
+from .forms import LearnerCreationForm
 from .models import (
     AssignmentSubmission,
     CareerPracticeResponse,
@@ -79,7 +79,7 @@ def home(request):
 def signup(request):
     if request.user.is_authenticated:
         return redirect("dashboard")
-    form = UserCreationForm(request.POST or None)
+    form = LearnerCreationForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         user = form.save()
         login(request, user)
