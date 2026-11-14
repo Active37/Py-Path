@@ -1,4 +1,5 @@
 from .web_curriculum import HTML_CSS_LESSONS, WEB_LESSONS
+from .java_curriculum import JAVA_LESSONS
 
 
 LESSONS = [
@@ -558,6 +559,7 @@ LESSONS = [
 
 LESSONS.extend(WEB_LESSONS)
 LESSONS.extend(HTML_CSS_LESSONS)
+LESSONS.extend(JAVA_LESSONS)
 
 
 def get_lesson(slug):

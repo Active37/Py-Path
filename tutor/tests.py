@@ -4,6 +4,7 @@ from io import BytesIO
 from urllib.error import HTTPError
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.contrib.staticfiles.finders import find
@@ -55,7 +56,7 @@ class LearningPlatformTests(TestCase):
     def test_seeded_course_content_is_database_backed_and_repeatable(self):
         course_count = Course.objects.count()
         lesson_count = CourseLesson.objects.count()
-        self.assertEqual(course_count, 12)
+        self.assertEqual(course_count, 13)
         self.assertEqual(lesson_count, len(LESSONS))
 
         lesson = CourseLesson.objects.get(slug=LESSONS[0]["slug"])
@@ -77,6 +78,26 @@ class LearningPlatformTests(TestCase):
 
         lesson.refresh_from_db()
         self.assertEqual(lesson.title, "Custom course title")
+
+    def test_seed_courses_missing_only_adds_java_without_overwriting_existing_lessons(self):
+        lesson = CourseLesson.objects.get(slug=LESSONS[0]["slug"])
+        lesson.title = "Existing custom lesson"
+        lesson.save(update_fields=["title"])
+        Course.objects.get(slug="java").delete()
+
+        call_command("seed_courses", "--missing-only", verbosity=0)
+
+        lesson.refresh_from_db()
+        self.assertEqual(lesson.title, "Existing custom lesson")
+        java = Course.objects.get(slug="java")
+        self.assertEqual(java.track, "Java")
+        self.assertEqual(java.lessons.count(), 36)
+        self.assertTrue(
+            CourseAssignment.objects.filter(
+                slug="java-oop-library-catalog",
+                course=java,
+            ).exists()
+        )
 
     def test_chat_returns_lesson_specific_hint_and_quiz(self):
         lesson = LESSONS[0]
@@ -756,9 +777,9 @@ class LearningPlatformTests(TestCase):
             if track["title"] == "Object-oriented Python"
         )
 
-        self.assertEqual(len(LESSONS), 106)
+        self.assertEqual(len(LESSONS), 142)
         self.assertEqual(len(slugs), len(set(slugs)))
-        self.assertEqual(len(tracks), 12)
+        self.assertEqual(len(tracks), 13)
         self.assertEqual(len(oop_lessons), 10)
         self.assertTrue(all(lesson["exercise"] for lesson in LESSONS))
 
@@ -787,9 +808,25 @@ class LearningPlatformTests(TestCase):
         self.assertIn("The cascade, specificity, and inheritance", html_titles)
         self.assertIn("Container queries and logical properties", html_titles)
 
+    def test_java_course_covers_oop_from_beginner_to_advanced_with_runnable_examples(self):
+        java_lessons = [
+            lesson for lesson in LESSONS if lesson["track"] == "Java"
+        ]
+        levels = {lesson["level"] for lesson in java_lessons}
+
+        self.assertEqual(len(java_lessons), 36)
+        self.assertEqual(levels, {"Start here", "Beginner", "Intermediate", "Advanced"})
+        self.assertTrue(
+            all("public static void main" in lesson["example"] for lesson in java_lessons)
+        )
+        self.assertTrue(
+            all(lesson["language"] == "Java" and lesson["exercise"] for lesson in java_lessons)
+        )
+
     def test_new_course_pages_render_their_language_specific_lessons(self):
         javascript = self.client.get(reverse("course", args=["javascript"]))
         html_css = self.client.get(reverse("course", args=["html-css"]))
+        java = self.client.get(reverse("course", args=["java"]))
 
         self.assertEqual(javascript.status_code, 200)
         self.assertContains(javascript, "JavaScript and the browser")
@@ -799,6 +836,30 @@ class LearningPlatformTests(TestCase):
         self.assertContains(html_css, "What HTML and CSS do")
         self.assertContains(html_css, "Accessibility and portfolio page project")
         self.assertContains(html_css, "30 LESSONS")
+        self.assertEqual(java.status_code, 200)
+        self.assertContains(java, "Java: Beginner to Advanced OOP")
+        self.assertContains(java, "Capstone: design an object-oriented library")
+        self.assertContains(java, "36 LESSONS")
+
+    def test_java_lessons_show_the_java_runner_and_reject_other_runner_languages(self):
+        lesson = next(item for item in LESSONS if item["slug"] == "java-first-program")
+
+        response = self.client.get(reverse("lesson", args=[lesson["slug"]]))
+        unsupported = self.client.post(
+            reverse("run_code"),
+            data=json.dumps(
+                {
+                    "code": "print('not supported')",
+                    "language": "JavaScript",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Java code")
+        self.assertContains(response, "public class Main")
+        self.assertEqual(unsupported.status_code, 400)
 
     def test_non_python_lesson_uses_matching_tutor_and_hides_python_runner(self):
         lesson = next(item for item in LESSONS if item["slug"] == "javascript-getting-started")
@@ -943,6 +1004,30 @@ class LearningPlatformTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["stdout"], "Hello\n")
         mock_run_python_code.assert_called_once_with('print("Hello")', "")
+
+    @patch(
+        "tutor.views.run_python_code",
+        return_value={"stdout": "Java is ready!\n", "stderr": "", "status": "Accepted"},
+    )
+    def test_java_code_runner_uses_configured_java_language(self, mock_run_python_code):
+        response = self.client.post(
+            reverse("run_code"),
+            data=json.dumps(
+                {
+                    "code": 'public class Main { public static void main(String[] args) { System.out.println("Java is ready!"); } }',
+                    "language": "Java",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["stdout"], "Java is ready!\n")
+        mock_run_python_code.assert_called_once_with(
+            'public class Main { public static void main(String[] args) { System.out.println("Java is ready!"); } }',
+            "",
+            language_id=settings.CODE_RUNNER_JAVA_LANGUAGE_ID,
+        )
 
     def test_code_runner_endpoint_rejects_empty_code(self):
         response = self.client.post(

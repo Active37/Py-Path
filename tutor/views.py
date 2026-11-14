@@ -1432,16 +1432,26 @@ def run_code(request):
         return JsonResponse({"error": "The request must be a JSON object."}, status=400)
     source_code = payload.get("code", "")
     stdin = payload.get("stdin", "")
+    language = payload.get("language", "Python")
     if not isinstance(source_code, str) or not isinstance(stdin, str):
         return JsonResponse({"error": "Code and input must be text."}, status=400)
+    if not isinstance(language, str) or language not in {"Python", "Java"}:
+        return JsonResponse({"error": "Choose Python or Java to run code."}, status=400)
     if not source_code.strip():
-        return JsonResponse({"error": "Enter some Python code to run."}, status=400)
+        return JsonResponse({"error": "Enter code to run."}, status=400)
     if len(source_code) > 4000:
         return JsonResponse({"error": "Keep code to 4,000 characters or fewer."}, status=400)
     if len(stdin) > 1000:
         return JsonResponse({"error": "Keep program input to 1,000 characters or fewer."}, status=400)
     try:
-        result = run_python_code(source_code, stdin)
+        if language == "Java":
+            result = run_python_code(
+                source_code,
+                stdin,
+                language_id=settings.CODE_RUNNER_JAVA_LANGUAGE_ID,
+            )
+        else:
+            result = run_python_code(source_code, stdin)
     except TutorServiceError as error:
         return JsonResponse({"error": str(error)}, status=503)
     return JsonResponse(result)

@@ -27,10 +27,10 @@
         <label><input type="checkbox" value="practice"> I tried the exercise</label>
         <small data-checklist-status aria-live="polite">Checklist saved on this device.</small>
       </fieldset>
-      {% if lesson.language == "Python" or not lesson.language %}
+      {% if lesson.language == "Python" or lesson.language == "Java" or not lesson.language %}
         <h2>Practice in the sandbox</h2>
         <p>Your code runs in a separate sandbox service, not on this website server.</p>
-        <label class="editor-label" for="code-input">Python code</label>
+        <label class="editor-label" for="code-input">{{ lesson.language|default:"Python" }} code</label>
         <textarea id="code-input" class="code-editor" spellcheck="false" maxlength="4000">{{ lesson.example }}</textarea>
         <label class="editor-label" for="code-stdin">Program input <span>(optional)</span></label>
         <input id="code-stdin" class="stdin-input" type="text" maxlength="1000" placeholder="Input for input()">
@@ -117,6 +117,7 @@
     const lessonSlug = "{{ lesson.slug|escapejs }}";
     const chatUrl = "{% url 'chat' %}";
     const runUrl = "{% url 'run_code' %}";
+    const codeLanguage = "{{ lesson.language|default:'Python'|escapejs }}";
 
     function addMessage(text, kind) {
       const bubble = document.createElement("div");
@@ -168,7 +169,11 @@
           const response = await fetch(runUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
-            body: JSON.stringify({ code: codeInput.value, stdin: stdinInput.value })
+            body: JSON.stringify({
+              code: codeInput.value,
+              stdin: stdinInput.value,
+              language: codeLanguage
+            })
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || "The code runner could not run this program.");

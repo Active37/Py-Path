@@ -1,4 +1,22 @@
 COURSES = {
+    "java": {
+        "title": "Java: Beginner to Advanced OOP",
+        "track": "Java",
+        "description": (
+            "A complete Java learning path from your first program through "
+            "object-oriented design, collections, testing, concurrency, and a "
+            "capstone project."
+        ),
+        "objectives": [
+            "Set up the JDK and write, compile, and run Java programs",
+            "Use types, methods, control flow, arrays, and collections",
+            "Design classes with encapsulation, composition, inheritance, and polymorphism",
+            "Apply interfaces, generics, exceptions, and modern Java data types",
+            "Use lambdas, streams, Optional, and concurrent task tools",
+            "Test, package, profile, and design maintainable Java applications",
+            "Build a complete object-oriented library catalog project",
+        ],
+    },
     "object-oriented-python": {
         "title": "Object-Oriented Python",
         "track": "Object-oriented Python",

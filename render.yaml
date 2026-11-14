@@ -3,7 +3,7 @@ services:
     name: pypath
     runtime: python
     plan: free
-    buildCommand: "python -m pip install -r requirements.txt && python manage.py collectstatic --no-input && DATABASE_URL=$DATABASE_URL_UNPOOLED python manage.py migrate --no-input && DATABASE_URL=$DATABASE_URL_UNPOOLED python manage.py seed_courses --if-empty"
+    buildCommand: "python -m pip install -r requirements.txt && python manage.py collectstatic --no-input && DATABASE_URL=$DATABASE_URL_UNPOOLED python manage.py migrate --no-input && DATABASE_URL=$DATABASE_URL_UNPOOLED python manage.py seed_courses --missing-only"
     startCommand: "gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120"
     healthCheckPath: /
     envVars:
@@ -23,5 +23,7 @@ services:
         sync: false
       - key: CODE_RUNNER_LANGUAGE_ID
         value: "71"
+      - key: CODE_RUNNER_JAVA_LANGUAGE_ID
+        value: "62"
       - key: CODE_RUNNER_TIMEOUT
         value: "30"

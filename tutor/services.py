@@ -100,7 +100,7 @@ def get_ai_reply(question, lesson, history):
     return reply.strip()[:8000]
 
 
-def run_python_code(source_code, stdin=""):
+def run_python_code(source_code, stdin="", language_id=None):
     if not settings.CODE_RUNNER_URL:
         raise TutorServiceError(
             "Code execution is not configured. Set CODE_RUNNER_URL to a self-hosted Judge0 API."
@@ -108,7 +108,7 @@ def run_python_code(source_code, stdin=""):
     payload = json.dumps(
         {
             "source_code": source_code,
-            "language_id": settings.CODE_RUNNER_LANGUAGE_ID,
+            "language_id": language_id or settings.CODE_RUNNER_LANGUAGE_ID,
             "stdin": stdin,
             "cpu_time_limit": 2,
             "wall_time_limit": 5,

@@ -48,8 +48,11 @@ AI_MODEL = os.environ.get("AI_MODEL", "gemini-3.5-flash-lite")
 AI_API_TIMEOUT = float(os.environ.get("AI_API_TIMEOUT", "20"))
 CODE_RUNNER_URL = os.environ.get("CODE_RUNNER_URL", "")
 CODE_RUNNER_API_KEY = os.environ.get("CODE_RUNNER_API_KEY", "")
-CODE_RUNNER_LANGUAGE_ID = int(os.environ.get("CODE_RUNNER_LANGUAGE_ID", "71"))
-CODE_RUNNER_TIMEOUT = float(os.environ.get("CODE_RUNNER_TIMEOUT", "30"))
+CODE_RUNNER_LANGUAGE_ID = int(os.environ.get("CODE_RUNNER_LANGUAGE_ID") or "71")
+CODE_RUNNER_JAVA_LANGUAGE_ID = int(
+    os.environ.get("CODE_RUNNER_JAVA_LANGUAGE_ID") or "62"
+)
+CODE_RUNNER_TIMEOUT = float(os.environ.get("CODE_RUNNER_TIMEOUT") or "30")
 if CODE_RUNNER_URL:
     try:
         parsed_code_runner_url = urlsplit(CODE_RUNNER_URL)

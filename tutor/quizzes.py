@@ -186,6 +186,31 @@ TRACK_QUIZZES = {
             "answer": 0,
         },
     ],
+    "Java": [
+        {
+            "question": "What does encapsulation help a class do?",
+            "choices": [
+                "Protect its state behind a controlled API",
+                "Run every method on a separate thread",
+                "Convert source code directly into HTML",
+            ],
+            "answer": 0,
+        },
+        {
+            "question": "Which Java feature lets unrelated classes share a capability?",
+            "choices": ["An interface", "A package-private constructor", "An array index"],
+            "answer": 0,
+        },
+        {
+            "question": "Why override both equals and hashCode for value-based objects?",
+            "choices": [
+                "Hash-based collections rely on their consistency contract",
+                "The compiler requires it for every class",
+                "It makes object fields public",
+            ],
+            "answer": 0,
+        },
+    ],
     "HTML and CSS": [
         {
             "question": "What is semantic HTML for?",

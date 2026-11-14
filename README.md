@@ -6,7 +6,8 @@ PyPath is a responsive Django learning platform for people learning Python and w
 
 ## Features
 
-- **Guided courses:** 106 lessons across Python, object-oriented Python, JavaScript, and HTML/CSS.
+- **Guided courses:** 140+ lessons across Python, Java, object-oriented Python, JavaScript, and HTML/CSS.
+- **Java OOP path:** 36 lessons from first program and types through polymorphism, design patterns, concurrency, and an object-oriented capstone.
 - **Practice and review:** lesson examples and exercises, quizzes, hints, bookmarks, and private lesson notes.
 - **AI tutor:** lesson-aware programming help powered by an OpenAI-compatible chat-completions API, including Gemini.
 - **Progress tracking:** completed lessons, daily goals, streaks, XP, badges, and an activity calendar.
@@ -15,7 +16,7 @@ PyPath is a responsive Django learning platform for people learning Python and w
 - **Browser playground:** preview HTML, CSS, and JavaScript in a sandboxed iframe.
 - **Installable web app:** install PyPath from supported browsers; the cached app shell and offline page are available without a connection.
 
-Learner Python code is **not** executed on the Django server. Server-side code execution is available only when an isolated, authenticated Judge0-compatible service is configured. The browser playground is for HTML, CSS, and JavaScript only; saved playground projects stay in browser storage.
+Learner Python and Java code is **not** executed on the Django server. Server-side code execution is available only when an isolated, authenticated Judge0-compatible service is configured. The browser playground is for HTML, CSS, and JavaScript only; saved playground projects stay in browser storage.
 
 ## Technology
 
@@ -54,7 +55,7 @@ DATABASE_URL=postgresql://postgres:your-password@localhost:5432/pypath
 
 Set `AI_API_KEY` if you want to use the AI tutor. Never commit `.env` or share its contents.
 
-Python execution is optional until you configure the self-hosted Judge0 service below.
+Python and Java execution is optional until you configure the self-hosted Judge0 service below.
 
 Create the schema, optionally load the starter catalog, and run Django:
 
@@ -107,7 +108,7 @@ PyPath serves the UI, backend, and static assets from one Django web service. Ne
 4. Let Render generate `DJANGO_SECRET_KEY`. The Blueprint sets `DJANGO_DEBUG=0`; Django uses the Render hostname automatically.
 5. Review the build logs. When the deployment succeeds, open the Render service URL and test the site.
 
-The build collects static assets, applies migrations with the direct database URL, and seeds the starter catalog only if there are no courses. Local data must be restored into Neon before deployment if it has not already been migrated. Render and Neon free-tier quotas and availability can change; free services may sleep or have limited backups and should not be treated as a production uptime guarantee.
+The build collects static assets, applies migrations with the direct database URL, and adds missing starter courses and lessons without overwriting existing course content. Local data must be restored into Neon before deployment if it has not already been migrated. Render and Neon free-tier quotas and availability can change; free services may sleep or have limited backups and should not be treated as a production uptime guarantee.
 
 ## Self-hosted Python code runner
 
@@ -127,6 +128,7 @@ PyPath sends Python submissions from Django to a separate Judge0 CE instance; it
    - `CODE_RUNNER_URL=https://<JUDGE0_DOMAIN>`
    - `CODE_RUNNER_API_KEY` equal to the Judge0 `AUTHN_TOKEN`
    - `CODE_RUNNER_LANGUAGE_ID=71` for the configured Judge0 Python runtime
+   - `CODE_RUNNER_JAVA_LANGUAGE_ID=62` for the configured Judge0 Java runtime
    - `CODE_RUNNER_TIMEOUT=30`
 5. Keep the token only in Django's server-side environment. Never put it in templates, browser JavaScript, or public Render variables. The code-runner API accepts only the limits enforced by PyPath; network access, callbacks, extra files, custom compiler options, and command-line arguments are disabled in the Judge0 example configuration.
 
