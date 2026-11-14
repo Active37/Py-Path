@@ -208,6 +208,7 @@ def seed_courses(missing_only=False):
         for slug, course in COURSE_SEED.items()
     }
 
+    added_tracks = set()
     for course_order, track in enumerate(seed_tracks):
         track_lessons = track["lessons"]
         seed_metadata = metadata_by_track.get(track["title"])
