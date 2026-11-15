@@ -81,9 +81,10 @@ Set these variables in `.env`:
 AI_API_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 AI_API_KEY=your-gemini-api-key
 AI_MODEL=gemini-flash-latest
+AI_API_TIMEOUT=60
 ```
 
-Restart Django after changing environment variables. Set either `AI_API_KEY` or `GEMINI_API_KEY` on the server; `AI_API_KEY` takes precedence. Keep API keys out of browser code and GitHub. Tutor hints and quizzes use course material and do not require an AI API key.
+`AI_API_TIMEOUT` is the maximum wait in seconds for the provider (default 60). Restart Django after changing environment variables. Set either `AI_API_KEY` or `GEMINI_API_KEY` on the server; `AI_API_KEY` takes precedence. Keep API keys out of browser code and GitHub. Tutor hints and quizzes use course material and do not require an AI API key.
 
 ## Run tests
 

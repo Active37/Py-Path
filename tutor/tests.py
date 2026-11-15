@@ -1005,6 +1005,7 @@ class LearningPlatformTests(TestCase):
         AI_API_KEY="test-key",
         AI_API_BASE_URL="https://provider.test/v1",
         AI_MODEL="test-model",
+        AI_API_TIMEOUT=45,
     )
     @patch("tutor.services.urlopen")
     def test_ai_tutor_uses_lesson_context_and_chat_history(self, mock_urlopen):
@@ -1045,6 +1046,7 @@ class LearningPlatformTests(TestCase):
         )
         self.assertEqual(request.get_header("X-goog-api-key"), "test-key")
         self.assertIsNone(request.get_header("Authorization"))
+        self.assertEqual(mock_urlopen.call_args.kwargs["timeout"], 45)
         self.assertIn(
             LESSONS[0]["title"],
             payload["systemInstruction"]["parts"][0]["text"],

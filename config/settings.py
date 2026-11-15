@@ -45,7 +45,7 @@ AI_API_BASE_URL = os.environ.get(
 )
 AI_API_KEY = os.environ.get("AI_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
 AI_MODEL = os.environ.get("AI_MODEL", "gemini-flash-latest")
-AI_API_TIMEOUT = float(os.environ.get("AI_API_TIMEOUT", "20"))
+AI_API_TIMEOUT = float(os.environ.get("AI_API_TIMEOUT", "60"))
 CODE_RUNNER_URL = os.environ.get("CODE_RUNNER_URL", "")
 CODE_RUNNER_API_KEY = os.environ.get("CODE_RUNNER_API_KEY", "")
 CODE_RUNNER_LANGUAGE_ID = int(os.environ.get("CODE_RUNNER_LANGUAGE_ID") or "71")
