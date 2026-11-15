@@ -2,18 +2,21 @@ import hashlib
 import hmac
 import logging
 import re
-import secrets
 import smtplib
+import time
 from email.utils import parseaddr
 from datetime import timedelta
 from uuid import uuid4
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.db import transaction
+from django.db.models import Count, Min
 from django.template.loader import render_to_string
 from django.utils import timezone
+from kombu.exceptions import OperationalError
+from redis.exceptions import RedisError
 
 from .models import EmailOTP
 
@@ -34,7 +37,10 @@ class OTPRequestLimited(Exception):
 
 
 class OTPDeliveryError(Exception):
-    pass
+    def __init__(self, message, *, retryable=False, error_code="delivery_failed"):
+        self.retryable = retryable
+        self.error_code = error_code
+        super().__init__(message)
 
 
 def _ensure_email_is_configured():
@@ -65,13 +71,6 @@ def _ensure_email_is_configured():
         )
 
 
-def _invalidate_challenge(challenge):
-    EmailOTP.objects.filter(
-        pk=challenge.pk,
-        consumed_at__isnull=True,
-    ).update(consumed_at=timezone.now())
-
-
 def _ip_fingerprint(request):
     if request is None:
         return ""
@@ -92,6 +91,19 @@ def _otp_digest(challenge_id, code):
         message,
         hashlib.sha256,
     ).hexdigest()
+
+
+def _otp_code_for_challenge(challenge_id):
+    key = settings.SECRET_KEY.encode("utf-8")
+    counter = 0
+    sample_limit = (1 << 64) - ((1 << 64) % 1_000_000)
+    while True:
+        message = f"pypath-email-otp:{challenge_id}:{counter}".encode("utf-8")
+        digest = hmac.new(key, message, hashlib.sha256).digest()
+        sample = int.from_bytes(digest[:8], "big")
+        if sample < sample_limit:
+            return f"{sample % 1_000_000:06d}"
+        counter += 1
 
 
 def _smtp_failure_details(error):
@@ -117,11 +129,33 @@ def _smtp_failure_details(error):
     return smtp_code, smtp_response
 
 
+def _smtp_error_code(error, smtp_code):
+    if isinstance(error, smtplib.SMTPServerDisconnected):
+        return "connection_error"
+    if smtp_code:
+        return f"smtp_{int(smtp_code)}"
+    if isinstance(error, (TimeoutError, OSError)) and not isinstance(
+        error,
+        smtplib.SMTPException,
+    ):
+        return "connection_error"
+    return error.__class__.__name__.lower()[:64]
+
+
+def _smtp_error_is_retryable(error, smtp_code):
+    if isinstance(error, smtplib.SMTPServerDisconnected):
+        return True
+    if isinstance(error, smtplib.SMTPException):
+        return smtp_code is not None and 400 <= int(smtp_code) < 500
+    if isinstance(error, (TimeoutError, OSError)):
+        return True
+    return smtp_code is not None and 400 <= int(smtp_code) < 500
+
+
 def _send_otp_email(challenge, code):
     try:
         _ensure_email_is_configured()
     except OTPDeliveryError as error:
-        _invalidate_challenge(challenge)
         logger.error(
             "OTP email delivery blocked by configuration "
             "(user_id=%s purpose=%s detail=%s)",
@@ -153,40 +187,74 @@ def _send_otp_email(challenge, code):
         [challenge.target_email],
     )
     email.attach_alternative(html_body, "text/html")
+    connection = get_connection(fail_silently=False)
+    connection_started = time.perf_counter()
+    connection_ms = None
+    provider_response_ms = None
     logger.info(
         "OTP email send attempted (user_id=%s purpose=%s)",
         challenge.user_id,
         challenge.purpose,
     )
     try:
-        if email.send(fail_silently=False) != 1:
+        connection.open()
+        connection_ms = (time.perf_counter() - connection_started) * 1000
+        provider_started = time.perf_counter()
+        email.connection = connection
+        accepted = email.send(fail_silently=False)
+        provider_response_ms = (time.perf_counter() - provider_started) * 1000
+        if accepted != 1:
             raise smtplib.SMTPException("Email provider did not accept the message.")
     except (OSError, ValueError, smtplib.SMTPException) as error:
-        _invalidate_challenge(challenge)
+        if connection_ms is None:
+            connection_ms = (time.perf_counter() - connection_started) * 1000
         smtp_code, smtp_response = _smtp_failure_details(error)
+        error_code = _smtp_error_code(error, smtp_code)
         logger.error(
             "OTP email delivery failed "
-            "(user_id=%s purpose=%s error=%s smtp_code=%s smtp_response=%s)",
+            "(user_id=%s purpose=%s error=%s smtp_code=%s smtp_response=%s "
+            "smtp_connect_ms=%.1f provider_response_ms=%s)",
             challenge.user_id,
             challenge.purpose,
             error.__class__.__name__,
             smtp_code or "unavailable",
             smtp_response or "unavailable",
+            connection_ms,
+            (
+                f"{provider_response_ms:.1f}"
+                if provider_response_ms is not None
+                else "unavailable"
+            ),
         )
-        raise OTPDeliveryError("We could not send the verification email.") from error
+        raise OTPDeliveryError(
+            "We could not send the verification email.",
+            retryable=_smtp_error_is_retryable(error, smtp_code),
+            error_code=error_code,
+        ) from error
+    finally:
+        connection.close()
     logger.info(
-        "OTP email accepted by provider (user_id=%s purpose=%s)",
+        "OTP email accepted by provider "
+        "(user_id=%s purpose=%s smtp_connect_ms=%.1f provider_response_ms=%.1f)",
         challenge.user_id,
         challenge.purpose,
+        connection_ms,
+        provider_response_ms,
     )
 
 
 def issue_otp(user, purpose, target_email=None, request=None):
+    started = time.perf_counter()
     now = timezone.now()
     email = (target_email or user.email).strip().casefold()
     ip_hash = _ip_fingerprint(request)
     user_model = get_user_model()
+    challenge_id = uuid4()
+    generation_started = time.perf_counter()
+    code = _otp_code_for_challenge(challenge_id)
+    generation_ms = (time.perf_counter() - generation_started) * 1000
 
+    persistence_started = time.perf_counter()
     with transaction.atomic():
         locked_user = user_model._default_manager.select_for_update().get(pk=user.pk)
         latest = EmailOTP.objects.filter(
@@ -199,31 +267,27 @@ def issue_otp(user, purpose, target_email=None, request=None):
             )
 
         one_hour_ago = now - timedelta(hours=1)
-        user_request_count = EmailOTP.objects.filter(
+        user_request_stats = EmailOTP.objects.filter(
             user=locked_user,
             created_at__gte=one_hour_ago,
-        ).count()
-        if user_request_count >= OTP_MAX_USER_REQUESTS_PER_HOUR:
-            oldest_user_request = EmailOTP.objects.filter(
-                user=locked_user,
-                created_at__gte=one_hour_ago,
-            ).order_by("created_at").first()
+        ).aggregate(count=Count("pk"), oldest=Min("created_at"))
+        if user_request_stats["count"] >= OTP_MAX_USER_REQUESTS_PER_HOUR:
             raise OTPRequestLimited(
-                (oldest_user_request.created_at + timedelta(hours=1) - now).total_seconds()
+                (
+                    user_request_stats["oldest"] + timedelta(hours=1) - now
+                ).total_seconds()
             )
 
         if ip_hash:
-            ip_request_count = EmailOTP.objects.filter(
+            ip_request_stats = EmailOTP.objects.filter(
                 request_ip_hash=ip_hash,
                 created_at__gte=one_hour_ago,
-            ).count()
-            if ip_request_count >= OTP_MAX_IP_REQUESTS_PER_HOUR:
-                oldest_ip_request = EmailOTP.objects.filter(
-                    request_ip_hash=ip_hash,
-                    created_at__gte=one_hour_ago,
-                ).order_by("created_at").first()
+            ).aggregate(count=Count("pk"), oldest=Min("created_at"))
+            if ip_request_stats["count"] >= OTP_MAX_IP_REQUESTS_PER_HOUR:
                 raise OTPRequestLimited(
-                    (oldest_ip_request.created_at + timedelta(hours=1) - now).total_seconds()
+                    (
+                        ip_request_stats["oldest"] + timedelta(hours=1) - now
+                    ).total_seconds()
                 )
 
         EmailOTP.objects.filter(
@@ -232,8 +296,6 @@ def issue_otp(user, purpose, target_email=None, request=None):
             consumed_at__isnull=True,
         ).update(consumed_at=now)
 
-        code = f"{secrets.randbelow(1_000_000):06d}"
-        challenge_id = uuid4()
         challenge = EmailOTP.objects.create(
             id=challenge_id,
             user=locked_user,
@@ -242,14 +304,70 @@ def issue_otp(user, purpose, target_email=None, request=None):
             otp_hash=_otp_digest(challenge_id, code),
             expires_at=now + OTP_LIFETIME,
             request_ip_hash=ip_hash,
+            delivery_status=EmailOTP.DeliveryStatus.QUEUED,
         )
+    persistence_ms = (time.perf_counter() - persistence_started) * 1000
 
     logger.info(
-        "OTP generated and persisted (user_id=%s purpose=%s)",
+        "OTP generated and persisted "
+        "(user_id=%s purpose=%s generation_ms=%.1f persistence_ms=%.1f)",
         locked_user.pk,
         purpose,
+        generation_ms,
+        persistence_ms,
     )
-    _send_otp_email(challenge, code)
+    queue_started = time.perf_counter()
+    from .tasks import send_otp_email_task
+
+    try:
+        send_otp_email_task.apply_async(args=[str(challenge.pk)])
+    except (OperationalError, RedisError, OSError) as error:
+        _finish_time = timezone.now()
+        EmailOTP.objects.filter(
+            pk=challenge.pk,
+            consumed_at__isnull=True,
+        ).update(
+            delivery_status=EmailOTP.DeliveryStatus.FAILED,
+            delivery_completed_at=_finish_time,
+            delivery_error="queue_unavailable",
+            consumed_at=_finish_time,
+        )
+        elapsed_ms = (time.perf_counter() - queue_started) * 1000
+        logger.error(
+            "OTP email could not be queued "
+            "(user_id=%s purpose=%s error=%s queue_publish_ms=%.1f)",
+            locked_user.pk,
+            purpose,
+            error.__class__.__name__,
+            elapsed_ms,
+        )
+        raise OTPDeliveryError(
+            "The verification email could not be queued. Please try again.",
+            error_code="queue_unavailable",
+        ) from error
+
+    if settings.CELERY_TASK_ALWAYS_EAGER:
+        challenge.refresh_from_db(fields=["delivery_status"])
+    EmailOTP.objects.filter(
+        pk=challenge.pk,
+        delivery_status=EmailOTP.DeliveryStatus.QUEUED,
+        consumed_at__isnull=True,
+    ).update(delivery_enqueued_at=timezone.now())
+    queue_publish_ms = (time.perf_counter() - queue_started) * 1000
+    delivery_status = (
+        challenge.delivery_status
+        if settings.CELERY_TASK_ALWAYS_EAGER
+        else EmailOTP.DeliveryStatus.QUEUED
+    )
+    logger.info(
+        "OTP email submission completed "
+        "(user_id=%s purpose=%s status=%s submission_ms=%.1f total_ms=%.1f)",
+        locked_user.pk,
+        purpose,
+        delivery_status,
+        queue_publish_ms,
+        (time.perf_counter() - started) * 1000,
+    )
     return challenge
 
 

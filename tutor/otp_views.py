@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.hashers import make_password
@@ -41,7 +42,7 @@ _PENDING_REGISTRATION_PASSWORD = "pending_registration_password"
 
 def _request_otp_safely(user, purpose, email, request):
     try:
-        issue_otp(user, purpose, target_email=email, request=request)
+        challenge = issue_otp(user, purpose, target_email=email, request=request)
     except OTPRequestLimited as error:
         logger.info(
             "OTP request limited (user_id=%s purpose=%s retry_after=%s)",
@@ -58,7 +59,12 @@ def _request_otp_safely(user, purpose, email, request):
             error,
         )
         return "failed"
-    return "accepted"
+    if (
+        settings.CELERY_TASK_ALWAYS_EAGER
+        and challenge.delivery_status == EmailOTP.DeliveryStatus.ACCEPTED
+    ):
+        return "accepted"
+    return "queued"
 
 
 def _email_otp_context(user, purpose, email, *, fallback_started_at=None):
@@ -123,6 +129,34 @@ def signup(request):
                 email,
                 request,
             )
+            if delivery_status == "queued":
+                messages.info(
+                    request,
+                    "Your verification email is queued. Check your inbox shortly; "
+                    "delivery time depends on the email provider.",
+                )
+            elif delivery_status == "accepted":
+                messages.info(
+                    request,
+                    "The email provider accepted your verification email. "
+                    "Inbox delivery is not confirmed.",
+                )
+            elif delivery_status == "failed":
+                messages.error(
+                    request,
+                    "We could not queue the verification email. Please try again later.",
+                )
+            elif delivery_status == "limited":
+                messages.info(
+                    request,
+                    "A verification email was requested recently. Use the countdown "
+                    "before requesting another.",
+                )
+            else:
+                messages.info(
+                    request,
+                    "If this address is eligible, check your inbox for a verification email.",
+                )
             logger.info(
                 "Registration verification request processed "
                 "(user_id=%s otp_delivery=%s)",
@@ -159,18 +193,30 @@ def verify_registration(request):
     user = _registration_user(request, email)
     if request.method == "POST":
         if request.POST.get("action") == "resend":
+            delivery_status = "not_eligible"
             if user:
-                _request_otp_safely(
+                delivery_status = _request_otp_safely(
                     user,
                     EmailOTP.Purpose.REGISTRATION,
                     email,
                     request,
                 )
-            messages.info(
-                request,
-                "If a code is available for this address, it will arrive by email. "
-                "You can request another after the timer.",
-            )
+            if delivery_status == "queued":
+                messages.info(
+                    request,
+                    "Verification email queued. Check your inbox shortly.",
+                )
+            elif delivery_status == "failed":
+                messages.error(
+                    request,
+                    "We could not queue the verification email. Try again later.",
+                )
+            else:
+                messages.info(
+                    request,
+                    "If a code is available for this address, it will arrive by email. "
+                    "You can request another after the timer.",
+                )
             return redirect("verify_registration")
 
         form = OTPCodeForm(request.POST)
@@ -436,7 +482,7 @@ def email_change_request(request):
             else:
                 messages.success(
                     request,
-                    "The email provider accepted the message. Check your inbox and spam folder.",
+                    "Verification email queued. Check your inbox shortly; delivery time depends on the provider.",
                 )
             return redirect("verify_email_change")
 
@@ -481,7 +527,7 @@ def verify_email_change(request):
         else:
             messages.success(
                 request,
-                "The email provider accepted the message. Check your inbox and spam folder.",
+                "Verification email queued. Check your inbox shortly; delivery time depends on the provider.",
             )
         return redirect("verify_email_change")
 

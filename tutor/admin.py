@@ -19,6 +19,7 @@ from .models import (
     DiscussionPost,
     DiscussionReply,
     EarnedAchievement,
+    EmailOTP,
     LearnerProfile,
     LessonBookmark,
     LessonNote,
@@ -132,6 +133,38 @@ admin.site.register(
     ],
     ReadOnlyAuditAdmin,
 )
+
+
+@admin.register(EmailOTP)
+class EmailOTPDeliveryAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        "id",
+        "user",
+        "purpose",
+        "delivery_status",
+        "delivery_attempts",
+        "delivery_error",
+        "created_at",
+        "delivery_completed_at",
+    )
+    list_filter = ("delivery_status", "purpose", "created_at")
+    search_fields = ("user__username", "user__email")
+    exclude = ("otp_hash", "request_ip_hash")
+    readonly_fields = (
+        "user",
+        "purpose",
+        "target_email",
+        "created_at",
+        "expires_at",
+        "attempts",
+        "consumed_at",
+        "delivery_status",
+        "delivery_attempts",
+        "delivery_started_at",
+        "delivery_enqueued_at",
+        "delivery_completed_at",
+        "delivery_error",
+    )
 
 
 @admin.register(LogEntry)

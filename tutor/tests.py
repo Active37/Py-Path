@@ -16,6 +16,8 @@ from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import resolve, reverse
 from django.utils import timezone
+from celery.exceptions import Retry
+from kombu.exceptions import OperationalError as KombuOperationalError
 
 from .curriculum import LESSONS, get_tracks
 from .models import (
@@ -49,7 +51,14 @@ from .quizzes import quiz_for_track
 from .resources import RESOURCE_GROUPS
 from .services import TutorServiceError, get_ai_reply, run_python_code
 from .middleware import RequestAuditMiddleware
-from .otp import OTPDeliveryError, OTPRequestLimited, issue_otp, verify_otp
+from .otp import (
+    OTPDeliveryError,
+    OTPRequestLimited,
+    _otp_digest,
+    issue_otp,
+    verify_otp,
+)
+from .tasks import requeue_stale_otp_emails, send_otp_email_task
 from .views import make_tutor_reply
 
 
@@ -1015,12 +1024,6 @@ class LearningPlatformTests(TestCase):
     )
     def test_registration_otp_expiry_and_resend_invalidation(self):
         mail.outbox.clear()
-        code_generator = patch(
-            "tutor.otp.secrets.randbelow",
-            side_effect=[111_111, 222_222],
-        )
-        code_generator.start()
-        self.addCleanup(code_generator.stop)
         self.client.logout()
         self.client.post(
             reverse("signup"),
@@ -1281,7 +1284,8 @@ class LearningPlatformTests(TestCase):
         otp_code = "123456"
         with (
             self.assertLogs("tutor.otp", level="ERROR") as captured_logs,
-            patch("tutor.otp.secrets.randbelow", return_value=int(otp_code)),
+            patch("tutor.otp._otp_code_for_challenge", return_value=otp_code),
+            patch("tutor.tasks._otp_code_for_challenge", return_value=otp_code),
             patch(
                 "tutor.otp.EmailMultiAlternatives.send",
                 side_effect=smtplib.SMTPAuthenticationError(
@@ -1303,6 +1307,172 @@ class LearningPlatformTests(TestCase):
         self.assertNotIn("mailer@example.test", log_output)
         self.assertNotIn("smtp-test-secret", log_output)
         self.assertNotIn(otp_code, log_output)
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        EMAIL_HOST="smtp.test",
+        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
+        SUPPORT_EMAIL="support@example.test",
+        CELERY_TASK_ALWAYS_EAGER=False,
+    )
+    def test_registration_queues_email_before_worker_sends_and_verifies_it(self):
+        mail.outbox.clear()
+        self.client.logout()
+
+        with patch("tutor.tasks.send_otp_email_task.apply_async") as enqueue:
+            response = self.client.post(
+                reverse("signup"),
+                {
+                    "username": "queued-learner",
+                    "email": "queued-learner@example.test",
+                    "password1": "a-very-safe-password-384!",
+                    "password2": "a-very-safe-password-384!",
+                },
+            )
+
+        self.assertRedirects(response, reverse("verify_registration"))
+        user = User.objects.get(email="queued-learner@example.test")
+        challenge = EmailOTP.objects.get(
+            user=user,
+            purpose=EmailOTP.Purpose.REGISTRATION,
+        )
+        self.assertEqual(challenge.delivery_status, EmailOTP.DeliveryStatus.QUEUED)
+        self.assertIsNotNone(challenge.delivery_enqueued_at)
+        self.assertEqual(mail.outbox, [])
+        enqueue.assert_called_once_with(args=[str(challenge.pk)])
+
+        result = send_otp_email_task.apply(args=[str(challenge.pk)], throw=True)
+        duplicate_result = send_otp_email_task.apply(
+            args=[str(challenge.pk)],
+            throw=True,
+        )
+
+        self.assertEqual(result.result, "accepted")
+        self.assertEqual(duplicate_result.result, EmailOTP.DeliveryStatus.ACCEPTED)
+        self.assertEqual(len(mail.outbox), 1)
+        challenge.refresh_from_db()
+        self.assertEqual(
+            challenge.delivery_status,
+            EmailOTP.DeliveryStatus.ACCEPTED,
+        )
+        self.assertEqual(challenge.delivery_attempts, 1)
+        code = self._email_otp_code()
+        self.assertEqual(_otp_digest(challenge.pk, code), challenge.otp_hash)
+        self.assertRedirects(
+            self.client.post(reverse("verify_registration"), {"code": code}),
+            reverse("dashboard"),
+        )
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        EMAIL_HOST="smtp.test",
+        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
+        SUPPORT_EMAIL="support@example.test",
+        CELERY_TASK_ALWAYS_EAGER=False,
+    )
+    def test_temporary_email_failure_is_retried_without_invalidating_otp(self):
+        challenge = EmailOTP.objects.create(
+            user=self.user,
+            purpose=EmailOTP.Purpose.PASSWORD_RESET,
+            target_email="learner@example.test",
+            otp_hash="x" * 64,
+            expires_at=timezone.now() + timedelta(minutes=5),
+            delivery_status=EmailOTP.DeliveryStatus.QUEUED,
+        )
+        retry_exception = Retry()
+
+        with (
+            patch(
+                "tutor.tasks._send_otp_email",
+                side_effect=OTPDeliveryError(
+                    "temporary SMTP response",
+                    retryable=True,
+                    error_code="smtp_421",
+                ),
+            ),
+            patch.object(
+                send_otp_email_task,
+                "retry",
+                side_effect=retry_exception,
+            ) as retry,
+        ):
+            with self.assertRaises(Retry):
+                send_otp_email_task.run(str(challenge.pk))
+
+        challenge.refresh_from_db()
+        self.assertEqual(challenge.delivery_status, EmailOTP.DeliveryStatus.QUEUED)
+        self.assertEqual(challenge.delivery_attempts, 1)
+        self.assertEqual(challenge.delivery_error, "smtp_421")
+        self.assertIsNone(challenge.consumed_at)
+        self.assertEqual(retry.call_args.kwargs["countdown"], 5)
+
+    def test_stale_otp_queue_entries_are_recovered_and_expired_entries_closed(self):
+        now = timezone.now()
+        stale_challenge = EmailOTP.objects.create(
+            user=self.user,
+            purpose=EmailOTP.Purpose.PASSWORD_RESET,
+            target_email="learner@example.test",
+            otp_hash="x" * 64,
+            expires_at=now + timedelta(minutes=5),
+            delivery_status=EmailOTP.DeliveryStatus.QUEUED,
+            delivery_enqueued_at=now - timedelta(minutes=2),
+        )
+        expired_challenge = EmailOTP.objects.create(
+            user=self.user,
+            purpose=EmailOTP.Purpose.ACCOUNT_RECOVERY,
+            target_email="learner@example.test",
+            otp_hash="y" * 64,
+            expires_at=now - timedelta(seconds=1),
+            delivery_status=EmailOTP.DeliveryStatus.QUEUED,
+        )
+
+        with patch("tutor.tasks.send_otp_email_task.apply_async") as enqueue:
+            recovered_count = requeue_stale_otp_emails()
+
+        self.assertEqual(recovered_count, 1)
+        enqueue.assert_called_once_with(
+            args=[str(stale_challenge.pk)],
+            task_id=f"otp-{stale_challenge.pk}",
+            expires=stale_challenge.expires_at,
+        )
+        stale_challenge.refresh_from_db()
+        expired_challenge.refresh_from_db()
+        self.assertGreater(stale_challenge.delivery_enqueued_at, now)
+        self.assertEqual(
+            expired_challenge.delivery_status,
+            EmailOTP.DeliveryStatus.FAILED,
+        )
+        self.assertIsNotNone(expired_challenge.consumed_at)
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        EMAIL_HOST="smtp.test",
+        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
+        SUPPORT_EMAIL="support@example.test",
+        CELERY_TASK_ALWAYS_EAGER=False,
+    )
+    def test_queue_failure_invalidates_the_undeliverable_otp(self):
+        with (
+            patch(
+                "tutor.tasks.send_otp_email_task.apply_async",
+                side_effect=KombuOperationalError("broker unavailable"),
+            ),
+            self.assertRaises(OTPDeliveryError),
+        ):
+            issue_otp(
+                self.user,
+                EmailOTP.Purpose.PASSWORD_RESET,
+                target_email="learner@example.test",
+            )
+
+        challenge = EmailOTP.objects.get(
+            user=self.user,
+            purpose=EmailOTP.Purpose.PASSWORD_RESET,
+        )
+        self.assertEqual(challenge.delivery_status, EmailOTP.DeliveryStatus.FAILED)
+        self.assertIsNotNone(challenge.consumed_at)
 
     @override_settings(
         DEBUG=False,

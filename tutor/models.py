@@ -650,6 +650,12 @@ class EmailOTP(models.Model):
         EMAIL_CHANGE = "email_change", "Email change"
         ACCOUNT_RECOVERY = "account_recovery", "Account recovery"
 
+    class DeliveryStatus(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        SENDING = "sending", "Sending"
+        ACCEPTED = "accepted", "Accepted by provider"
+        FAILED = "failed", "Failed"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -664,12 +670,23 @@ class EmailOTP(models.Model):
     attempts = models.PositiveSmallIntegerField(default=0)
     consumed_at = models.DateTimeField(null=True, blank=True)
     request_ip_hash = models.CharField(max_length=64, blank=True)
+    delivery_status = models.CharField(
+        max_length=12,
+        choices=DeliveryStatus.choices,
+        default=DeliveryStatus.ACCEPTED,
+    )
+    delivery_attempts = models.PositiveSmallIntegerField(default=0)
+    delivery_started_at = models.DateTimeField(null=True, blank=True)
+    delivery_enqueued_at = models.DateTimeField(null=True, blank=True)
+    delivery_completed_at = models.DateTimeField(null=True, blank=True)
+    delivery_error = models.CharField(max_length=64, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["user", "purpose", "created_at"]),
             models.Index(fields=["request_ip_hash", "created_at"]),
+            models.Index(fields=["delivery_status", "created_at"]),
         ]
         constraints = [
             models.UniqueConstraint(
