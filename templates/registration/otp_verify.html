@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ title }} | PyPath{% endblock %}
+{% block content %}
+<section class="auth-wrap">
+  <div class="auth-card otp-card" data-otp-expiry="{{ expires_at_ms }}" data-otp-resend="{{ resend_at_ms }}">
+    <p class="eyebrow">PYPath ACCOUNT SECURITY</p>
+    <h1>{{ title }}</h1>
+    <p class="muted">{{ intro }}</p>
+    <p class="otp-destination">Code sent to <strong>{{ email }}</strong></p>
+    <p class="otp-countdown" data-otp-countdown aria-live="polite"></p>
+    <form method="post" action="{{ verify_url }}" class="form-stack">
+      {% csrf_token %}
+      <label for="{{ form.code.id_for_label }}">Six-digit code</label>
+      {{ form.code }}
+      {% for error in form.code.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+      <button class="button full-width" type="submit" data-otp-submit data-loading-label="Verifying...">
+        <span data-otp-submit-label>Verify code</span>
+        <span class="otp-submit-spinner" data-otp-spinner hidden aria-hidden="true"></span>
+      </button>
+    </form>
+    {% if show_resend %}
+      <form method="post" action="{{ resend_url }}" class="otp-resend-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="resend">
+        <button class="button button-secondary full-width" type="submit" data-otp-resend-button>
+          Resend code
+        </button>
+      </form>
+    {% endif %}
+    <p class="auth-switch"><a href="{% url 'login' %}">Back to sign in</a></p>
+  </div>
+</section>
+<script src="{% static 'otp.js' %}" defer></script>
+{% endblock %}

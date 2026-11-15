@@ -641,3 +641,43 @@ class UserSubscription(models.Model):
 
     def __str__(self):
         return f"{self.user}: {self.plan.title} ({self.status})"
+
+
+class EmailOTP(models.Model):
+    class Purpose(models.TextChoices):
+        REGISTRATION = "registration", "Registration"
+        PASSWORD_RESET = "password_reset", "Password reset"
+        EMAIL_CHANGE = "email_change", "Email change"
+        ACCOUNT_RECOVERY = "account_recovery", "Account recovery"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="email_otps",
+    )
+    purpose = models.CharField(max_length=24, choices=Purpose.choices)
+    target_email = models.EmailField(max_length=254)
+    otp_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    request_ip_hash = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "purpose", "created_at"]),
+            models.Index(fields=["request_ip_hash", "created_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "purpose"],
+                condition=models.Q(consumed_at__isnull=True),
+                name="unique_active_email_otp_per_purpose",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.purpose} OTP for user {self.user_id}"

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} | PyPath{% endblock %}
+{% block content %}
+<section class="auth-wrap">
+  <div class="auth-card">
+    <p class="eyebrow">PYPath ACCOUNT SECURITY</p>
+    <h1>{{ title }}</h1>
+    <p class="muted">Enter the email address on your PyPath account. If an active account matches, we’ll send a six-digit code.</p>
+    <form method="post" class="form-stack">
+      {% csrf_token %}
+      <label for="{{ form.email.id_for_label }}">Email address</label>
+      {{ form.email }}
+      {% for error in form.email.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+      <button class="button full-width" type="submit">{{ submit_label }}</button>
+    </form>
+    <p class="auth-switch"><a href="{{ login_url }}">Back to sign in</a></p>
+  </div>
+</section>
+{% endblock %}

@@ -86,6 +86,20 @@ AI_API_TIMEOUT=60
 
 `AI_API_TIMEOUT` is the maximum wait in seconds for the provider (default 60). Restart Django after changing environment variables. Set either `AI_API_KEY` or `GEMINI_API_KEY` on the server; `AI_API_KEY` takes precedence. Keep API keys out of browser code and GitHub. Tutor hints and quizzes use course material and do not require an AI API key.
 
+## Email verification and account recovery
+
+New signups stay inactive until a single-use email code is verified. Codes expire after five minutes, permit at most five guesses, and can be reissued after a 60-second cooldown. Request limits are stored in PostgreSQL and use a keyed IP fingerprint rather than a raw IP address. Existing accounts are not deactivated by the migration. Password reset, account recovery, and email changes use separate OTP purposes; OTP challenges are HMAC-hashed and never included in production application logs. Additional OTP at every login is not enabled.
+
+Email delivery uses SMTP so a transactional provider such as Postmark, SendGrid, or Brevo can be configured without provider-specific code. Set these environment variables in Render to your provider's SMTP settings:
+
+- `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, and `EMAIL_HOST_PASSWORD`
+- `EMAIL_USE_TLS` or `EMAIL_USE_SSL` (never both)
+- `DEFAULT_FROM_EMAIL` using a sender address verified with the provider
+- `SUPPORT_EMAIL` for the email template's support contact
+- `EMAIL_TIMEOUT` for the SMTP connection timeout
+
+Store credentials only in Render's environment settings. In local development, Django uses its console email backend when `DEBUG=1` and no SMTP host is configured; this prints the development email to the local console. Production always uses SMTP and fails closed if the host or valid sender is missing; it never falls back to console delivery. Configure SMTP before enabling the new signup flow in production.
+
 ## Run tests
 
 ```powershell
@@ -106,6 +120,7 @@ PyPath serves the UI, backend, and static assets from one Django web service. Ne
    - `DATABASE_URL`: Neon’s **pooled** PostgreSQL connection URL for app requests.
    - `DATABASE_URL_UNPOOLED`: Neon’s **direct** PostgreSQL connection URL for migrations and seeding.
    - `AI_API_KEY` or `GEMINI_API_KEY`: your Gemini API key. `AI_API_KEY` takes precedence if both are set.
+   - Email SMTP variables listed above. Without a verified sender and working SMTP credentials, production OTP emails cannot be delivered.
    - `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, and `DJANGO_SUPERUSER_PASSWORD`: set all three in Render’s environment settings to bootstrap the first admin account.
 4. Let Render generate `DJANGO_SECRET_KEY`. The Blueprint sets `DJANGO_DEBUG=0`; Django uses the Render hostname automatically.
 5. Review the build logs. When the deployment succeeds, open the Render service URL and test the site.

@@ -46,6 +46,33 @@ AI_API_BASE_URL = os.environ.get(
 AI_API_KEY = os.environ.get("AI_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
 AI_MODEL = os.environ.get("AI_MODEL", "gemini-flash-latest")
 AI_API_TIMEOUT = float(os.environ.get("AI_API_TIMEOUT", "60"))
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "").strip()
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
+EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
+if EMAIL_USE_TLS and EMAIL_USE_SSL:
+    raise ImproperlyConfigured("Choose either EMAIL_USE_TLS or EMAIL_USE_SSL, not both.")
+EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10"))
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL",
+    "PyPath <no-reply@pypath.local>",
+).strip()
+SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "support@pypath.local").strip()
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if EMAIL_HOST or not DEBUG
+    else "django.core.mail.backends.console.EmailBackend"
+)
 CODE_RUNNER_URL = os.environ.get("CODE_RUNNER_URL", "")
 CODE_RUNNER_API_KEY = os.environ.get("CODE_RUNNER_API_KEY", "")
 CODE_RUNNER_LANGUAGE_ID = int(os.environ.get("CODE_RUNNER_LANGUAGE_ID") or "71")

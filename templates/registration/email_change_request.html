@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Change email | PyPath{% endblock %}
+{% block content %}
+<section class="auth-wrap">
+  <div class="auth-card">
+    <p class="eyebrow">ACCOUNT SETTINGS</p>
+    <h1>Change your email</h1>
+    <p class="muted">We’ll send a code to the new address. Your current email stays on your account until you verify it.</p>
+    <form method="post" class="form-stack">
+      {% csrf_token %}
+      {% for field in form %}
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% for error in field.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+      {% endfor %}
+      <button class="button full-width" type="submit">Send verification code</button>
+    </form>
+    <p class="auth-switch"><a href="{% url 'profile' %}">Back to profile</a></p>
+  </div>
+</section>
+{% endblock %}
