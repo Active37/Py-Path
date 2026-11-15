@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import logging
+import re
 import secrets
 import smtplib
 from email.utils import parseaddr
@@ -41,14 +42,27 @@ def _ensure_email_is_configured():
         return
     sender_address = parseaddr(settings.DEFAULT_FROM_EMAIL)[1].lower()
     support_address = parseaddr(settings.SUPPORT_EMAIL)[1].lower()
+    missing_settings = []
+    if not settings.EMAIL_HOST:
+        missing_settings.append("EMAIL_HOST")
     if (
-        not settings.EMAIL_HOST
-        or "@" not in sender_address
-        or sender_address.endswith(".local")
-        or "@" not in support_address
-        or support_address.endswith(".local")
+        settings.EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend"
+        and not settings.EMAIL_HOST_USER
     ):
-        raise OTPDeliveryError("Production email delivery is not configured.")
+        missing_settings.append("EMAIL_HOST_USER")
+    if (
+        settings.EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend"
+        and not settings.EMAIL_HOST_PASSWORD
+    ):
+        missing_settings.append("EMAIL_HOST_PASSWORD")
+    if "@" not in sender_address or sender_address.endswith(".local"):
+        missing_settings.append("DEFAULT_FROM_EMAIL")
+    if "@" not in support_address or support_address.endswith(".local"):
+        missing_settings.append("SUPPORT_EMAIL")
+    if missing_settings:
+        raise OTPDeliveryError(
+            f"Email delivery is missing valid configuration: {', '.join(missing_settings)}."
+        )
 
 
 def _invalidate_challenge(challenge):
@@ -80,11 +94,41 @@ def _otp_digest(challenge_id, code):
     ).hexdigest()
 
 
+def _smtp_failure_details(error):
+    smtp_code = getattr(error, "smtp_code", None)
+    smtp_response = getattr(error, "smtp_error", None)
+    if isinstance(error, smtplib.SMTPRecipientsRefused) and error.recipients:
+        smtp_code, smtp_response = next(iter(error.recipients.values()))
+    if isinstance(smtp_response, bytes):
+        smtp_response = smtp_response.decode("utf-8", errors="replace")
+    if not isinstance(smtp_response, str):
+        smtp_response = ""
+
+    smtp_response = re.sub(
+        r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+        "[redacted-email]",
+        smtp_response,
+        flags=re.IGNORECASE,
+    )
+    for secret in (settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD):
+        if secret:
+            smtp_response = smtp_response.replace(secret, "[redacted]")
+    smtp_response = re.sub(r"[\r\n\t]+", " ", smtp_response).strip()[:240]
+    return smtp_code, smtp_response
+
+
 def _send_otp_email(challenge, code):
     try:
         _ensure_email_is_configured()
-    except OTPDeliveryError:
+    except OTPDeliveryError as error:
         _invalidate_challenge(challenge)
+        logger.error(
+            "OTP email delivery blocked by configuration "
+            "(user_id=%s purpose=%s detail=%s)",
+            challenge.user_id,
+            challenge.purpose,
+            error,
+        )
         raise
 
     purpose_labels = {
@@ -109,17 +153,32 @@ def _send_otp_email(challenge, code):
         [challenge.target_email],
     )
     email.attach_alternative(html_body, "text/html")
+    logger.info(
+        "OTP email send attempted (user_id=%s purpose=%s)",
+        challenge.user_id,
+        challenge.purpose,
+    )
     try:
         if email.send(fail_silently=False) != 1:
             raise smtplib.SMTPException("Email provider did not accept the message.")
     except (OSError, ValueError, smtplib.SMTPException) as error:
         _invalidate_challenge(challenge)
+        smtp_code, smtp_response = _smtp_failure_details(error)
         logger.error(
-            "OTP email delivery failed (purpose=%s, error=%s)",
+            "OTP email delivery failed "
+            "(user_id=%s purpose=%s error=%s smtp_code=%s smtp_response=%s)",
+            challenge.user_id,
             challenge.purpose,
             error.__class__.__name__,
+            smtp_code or "unavailable",
+            smtp_response or "unavailable",
         )
         raise OTPDeliveryError("We could not send the verification email.") from error
+    logger.info(
+        "OTP email accepted by provider (user_id=%s purpose=%s)",
+        challenge.user_id,
+        challenge.purpose,
+    )
 
 
 def issue_otp(user, purpose, target_email=None, request=None):
@@ -185,6 +244,11 @@ def issue_otp(user, purpose, target_email=None, request=None):
             request_ip_hash=ip_hash,
         )
 
+    logger.info(
+        "OTP generated and persisted (user_id=%s purpose=%s)",
+        locked_user.pk,
+        purpose,
+    )
     _send_otp_email(challenge, code)
     return challenge
 

@@ -49,13 +49,16 @@ def _request_otp_safely(user, purpose, email, request):
             purpose,
             error.retry_after,
         )
+        return "limited"
     except OTPDeliveryError as error:
         logger.warning(
-            "OTP delivery unavailable (user_id=%s purpose=%s error=%s)",
+            "OTP request failed (user_id=%s purpose=%s error=%s)",
             user.pk,
             purpose,
-            error.__class__.__name__,
+            error,
         )
+        return "failed"
+    return "accepted"
 
 
 def _email_otp_context(user, purpose, email, *, fallback_started_at=None):
@@ -114,13 +117,20 @@ def signup(request):
             request.session[_PENDING_REGISTRATION_PASSWORD] = make_password(
                 form.cleaned_data["password1"]
             )
-            _request_otp_safely(
+            delivery_status = _request_otp_safely(
                 user,
                 EmailOTP.Purpose.REGISTRATION,
                 email,
                 request,
             )
-            logger.info("Registration verification started (user_id=%s)", user.pk)
+            logger.info(
+                "Registration verification request processed "
+                "(user_id=%s otp_delivery=%s)",
+                user.pk,
+                delivery_status,
+            )
+        else:
+            logger.info("Registration request processed (otp_delivery=not_eligible)")
 
         return redirect("verify_registration")
 
@@ -158,7 +168,8 @@ def verify_registration(request):
                 )
             messages.info(
                 request,
-                "If this address is eligible, a verification code has been sent.",
+                "If a code is available for this address, it will arrive by email. "
+                "You can request another after the timer.",
             )
             return redirect("verify_registration")
 
@@ -230,8 +241,8 @@ def verify_registration(request):
             "form": form,
             "title": "Verify your email",
             "intro": (
-                "If this address is eligible, a six-digit code has been sent. "
-                "Enter it below to activate your PyPath account."
+                "Enter the six-digit verification code if it arrived. "
+                "If you do not receive one, request another after the timer."
             ),
             "verify_url": reverse("verify_registration"),
             "resend_url": reverse("verify_registration"),
@@ -253,7 +264,7 @@ def _request_account_otp(request, purpose, verify_url_name, heading):
             _request_otp_safely(user, purpose, email, request)
         messages.success(
             request,
-            "If an active account matches that address, a code has been sent.",
+            "If an active account matches that address, a code may arrive by email.",
         )
         return redirect(verify_url_name)
     return render(
@@ -300,7 +311,7 @@ def _verify_password_otp(request, purpose, request_url_name, heading):
                 _request_otp_safely(user, purpose, email, request)
             messages.info(
                 request,
-                "If an active account matches that address, a code has been sent.",
+                "If an active account matches that address, a code may arrive by email.",
             )
             return redirect(request.path)
 
@@ -425,7 +436,7 @@ def email_change_request(request):
             else:
                 messages.success(
                     request,
-                    "If the address can be used, a verification code has been sent.",
+                    "The email provider accepted the message. Check your inbox and spam folder.",
                 )
             return redirect("verify_email_change")
 
@@ -468,7 +479,10 @@ def verify_email_change(request):
                 "We could not send the verification email. Please try again later.",
             )
         else:
-            messages.success(request, "A new verification code has been sent.")
+            messages.success(
+                request,
+                "The email provider accepted the message. Check your inbox and spam folder.",
+            )
         return redirect("verify_email_change")
 
     form = OTPCodeForm(request.POST or None)

@@ -817,6 +817,7 @@ class LearningPlatformTests(TestCase):
         user = User.objects.get(username="new-learner")
         self.assertFalse(user.is_active)
         self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["new-learner@example.test"])
         code = self._email_otp_code()
         self.assertIn(code, mail.outbox[0].body)
 
@@ -922,7 +923,7 @@ class LearningPlatformTests(TestCase):
         self.assertRedirects(response, reverse("verify_registration"))
         self.assertContains(
             self.client.get(reverse("verify_registration")),
-            "If this address is eligible",
+            "Enter the six-digit verification code if it arrived",
         )
         self.assertEqual(User.objects.filter(email__iexact="learner@example.test").count(), 1)
 
@@ -1260,6 +1261,48 @@ class LearningPlatformTests(TestCase):
         )
         self.assertIsNotNone(challenge.consumed_at)
         self.assertEqual(len(mail.outbox), 0)
+        verification_page = self.client.get(reverse("verify_registration"))
+        self.assertContains(
+            verification_page,
+            "Enter the six-digit verification code if it arrived",
+        )
+        self.assertNotContains(verification_page, "Code sent to")
+        self.assertNotContains(verification_page, "has been sent")
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        EMAIL_HOST="smtp.test",
+        EMAIL_HOST_USER="mailer@example.test",
+        EMAIL_HOST_PASSWORD="smtp-test-secret",
+        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
+        SUPPORT_EMAIL="support@example.test",
+    )
+    def test_smtp_authentication_diagnostics_redact_credentials_and_otp(self):
+        otp_code = "123456"
+        with (
+            self.assertLogs("tutor.otp", level="ERROR") as captured_logs,
+            patch("tutor.otp.secrets.randbelow", return_value=int(otp_code)),
+            patch(
+                "tutor.otp.EmailMultiAlternatives.send",
+                side_effect=smtplib.SMTPAuthenticationError(
+                    535,
+                    b"Username and Password not accepted for mailer@example.test",
+                ),
+            ),
+        ):
+            with self.assertRaises(OTPDeliveryError):
+                issue_otp(
+                    self.user,
+                    EmailOTP.Purpose.PASSWORD_RESET,
+                    target_email="learner@example.test",
+                )
+
+        log_output = "\n".join(captured_logs.output)
+        self.assertIn("smtp_code=535", log_output)
+        self.assertIn("Username and Password not accepted", log_output)
+        self.assertNotIn("mailer@example.test", log_output)
+        self.assertNotIn("smtp-test-secret", log_output)
+        self.assertNotIn(otp_code, log_output)
 
     @override_settings(
         DEBUG=False,

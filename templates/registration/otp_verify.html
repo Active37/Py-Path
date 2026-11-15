@@ -7,7 +7,7 @@
     <p class="eyebrow">PYPath ACCOUNT SECURITY</p>
     <h1>{{ title }}</h1>
     <p class="muted">{{ intro }}</p>
-    <p class="otp-destination">Code sent to <strong>{{ email }}</strong></p>
+    <p class="otp-destination">Verification email: <strong>{{ email }}</strong></p>
     <p class="otp-countdown" data-otp-countdown aria-live="polite"></p>
     <form method="post" action="{{ verify_url }}" class="form-stack">
       {% csrf_token %}
