@@ -16,6 +16,9 @@ class TutorServiceError(Exception):
 
 def get_ai_reply(question, lesson, history):
     if not settings.AI_API_KEY:
+        logger.error(
+            "AI tutor is unavailable because neither AI_API_KEY nor GEMINI_API_KEY is configured"
+        )
         raise TutorServiceError(
             "AI tutoring is not configured. Set AI_API_KEY; AI_API_BASE_URL and "
             "AI_MODEL can be customized for your provider."
@@ -96,6 +99,7 @@ def get_ai_reply(question, lesson, history):
             "The AI tutor returned an unexpected response. Please try again."
         ) from error
     if not isinstance(reply, str) or not reply.strip():
+        logger.warning("AI provider returned an empty chat completion")
         raise TutorServiceError("The AI tutor returned an empty response.")
     return reply.strip()[:8000]
 

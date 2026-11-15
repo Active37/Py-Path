@@ -24,10 +24,9 @@ class Command(BaseCommand):
                 )
             )
             return
-        if not all(values):
+        if not username or not email:
             raise CommandError(
-                "Set DJANGO_SUPERUSER_USERNAME, DJANGO_SUPERUSER_EMAIL, and "
-                "DJANGO_SUPERUSER_PASSWORD together, or leave all three unset."
+                "Set DJANGO_SUPERUSER_USERNAME and DJANGO_SUPERUSER_EMAIL together."
             )
 
         User = get_user_model()
@@ -44,6 +43,10 @@ class Command(BaseCommand):
         if User.objects.filter(email__iexact=email).exists():
             raise CommandError(
                 "The configured admin email is already used by another account."
+            )
+        if not password:
+            raise CommandError(
+                "Set DJANGO_SUPERUSER_PASSWORD to create the initial admin account."
             )
 
         candidate = User(username=username, email=email)

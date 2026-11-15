@@ -1,13 +1,13 @@
-const CACHE_NAME = "pypath-shell-v9";
+const CACHE_NAME = "pypath-shell-v10";
 const APP_SHELL = [
-  "/static/app.css?v=9",
-  "/static/app.js?v=9",
-  "/static/manifest.webmanifest?v=9",
-  "/static/pwa/icon.svg?v=9",
-  "/static/pwa/icon-192.png?v=9",
-  "/static/pwa/icon-512.png?v=9",
-  "/static/pwa/apple-touch-icon.png?v=9",
-  "/static/offline.html?v=9"
+  "/static/app.css?v=10",
+  "/static/app.js?v=10",
+  "/static/manifest.webmanifest?v=10",
+  "/static/pwa/icon.svg?v=10",
+  "/static/pwa/icon-192.png?v=10",
+  "/static/pwa/icon-512.png?v=10",
+  "/static/pwa/apple-touch-icon.png?v=10",
+  "/static/offline.html?v=10"
 ];
 
 self.addEventListener("install", (event) => {

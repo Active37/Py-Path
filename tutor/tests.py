@@ -9,8 +9,9 @@ from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.contrib.staticfiles.finders import find
-from django.test import TestCase, override_settings
-from django.urls import reverse
+from django.http import HttpResponse
+from django.test import RequestFactory, TestCase, override_settings
+from django.urls import resolve, reverse
 from django.utils import timezone
 
 from .curriculum import LESSONS, get_tracks
@@ -43,6 +44,7 @@ from .projects import PROJECTS
 from .quizzes import quiz_for_track
 from .resources import RESOURCE_GROUPS
 from .services import TutorServiceError, get_ai_reply, run_python_code
+from .middleware import RequestAuditMiddleware
 from .views import make_tutor_reply
 
 
@@ -634,16 +636,24 @@ class LearningPlatformTests(TestCase):
         self.assertNotContains(response, submission.content)
 
     def test_community_posts_and_replies_are_saved(self):
+        body = (
+            "I am learning modules and packages. How do you decide what belongs in each file? "
+            "I want to keep related behavior together without making files too large. "
+            "I am also wondering how you name a package and when you split one into subpackages. "
+            "Please share an example that helped you organize a growing project."
+        )
         response = self.client.post(
             reverse("community"),
             {
                 "title": "How do you organize a Python project?",
-                "body": "I am learning modules and packages. How do you decide what belongs in each file?",
+                "body": body,
             },
         )
         post = DiscussionPost.objects.get(author=self.user)
         self.assertRedirects(response, reverse("discussion_detail", args=[post.pk]))
-        self.assertContains(self.client.get(reverse("community")), post.title)
+        community_response = self.client.get(reverse("community"))
+        self.assertContains(community_response, post.title)
+        self.assertContains(community_response, body)
         self.client.post(
             reverse("discussion_detail", args=[post.pk]),
             {"body": "I keep each module focused on one related responsibility."},
@@ -1245,7 +1255,7 @@ class AdminOversightTests(TestCase):
 
             with patch.dict(
                 "os.environ",
-                {"DJANGO_SUPERUSER_PASSWORD": "Changed-deploy-password-384!"},
+                {"DJANGO_SUPERUSER_PASSWORD": ""},
             ):
                 call_command("bootstrap_admin", verbosity=0)
 
@@ -1265,3 +1275,36 @@ class AdminOversightTests(TestCase):
         with patch.dict("os.environ", credentials):
             with self.assertRaises(CommandError):
                 call_command("bootstrap_admin", verbosity=0)
+
+
+class RequestAuditMiddlewareTests(TestCase):
+    def test_api_request_log_includes_user_and_safe_route_without_query_or_body(self):
+        user = User.objects.create_user(
+            username="audit-learner",
+            email="audit-learner@example.test",
+            password="Audit-learner-password-384!",
+        )
+        path = reverse("chat")
+        request = RequestFactory().post(
+            f"{path}?token=private-query-token",
+            data="private-request-body",
+            content_type="text/plain",
+        )
+        request.user = user
+        middleware = RequestAuditMiddleware(
+            lambda _request: HttpResponse(status=202)
+        )
+
+        with self.assertLogs("tutor.access", level="INFO") as request_logs:
+            response = middleware(request)
+
+        event = json.loads(request_logs.records[0].getMessage())
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(event["event"], "http_request")
+        self.assertEqual(event["method"], "POST")
+        self.assertEqual(event["route"], resolve(path).route)
+        self.assertEqual(event["status"], 202)
+        self.assertEqual(event["user"]["username"], user.username)
+        self.assertEqual(event["user"]["email"], user.email)
+        self.assertNotIn("private-query-token", request_logs.records[0].getMessage())
+        self.assertNotIn("private-request-body", request_logs.records[0].getMessage())

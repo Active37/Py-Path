@@ -104,14 +104,16 @@ PyPath serves the UI, backend, and static assets from one Django web service. Ne
 3. Configure the service environment variables:
    - `DATABASE_URL`: Neon’s **pooled** PostgreSQL connection URL for app requests.
    - `DATABASE_URL_UNPOOLED`: Neon’s **direct** PostgreSQL connection URL for migrations and seeding.
-   - `AI_API_KEY`: your Gemini API key.
+   - `AI_API_KEY` or `GEMINI_API_KEY`: your Gemini API key. `AI_API_KEY` takes precedence if both are set.
    - `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, and `DJANGO_SUPERUSER_PASSWORD`: set all three in Render’s environment settings to bootstrap the first admin account.
 4. Let Render generate `DJANGO_SECRET_KEY`. The Blueprint sets `DJANGO_DEBUG=0`; Django uses the Render hostname automatically.
 5. Review the build logs. When the deployment succeeds, open the Render service URL and test the site.
 
-The build collects static assets, applies migrations with the direct database URL, optionally creates the initial admin account, and adds missing starter courses and lessons without overwriting existing course content. The admin bootstrap is skipped if all three `DJANGO_SUPERUSER_*` values are unset, and it never changes an existing superuser's password. Remove `DJANGO_SUPERUSER_PASSWORD` from Render after the account has been created. Never put a real password in `.env.example` or commit it to Git.
+The build collects static assets, applies migrations with the direct database URL, optionally creates the initial admin account, and adds missing starter courses and lessons without overwriting existing course content. The admin bootstrap is skipped if all three `DJANGO_SUPERUSER_*` values are unset, and it never changes an existing superuser's password. After creation, you can remove `DJANGO_SUPERUSER_PASSWORD` from Render; the username and email can remain set, and later builds leave that existing superuser unchanged. Never put a real password in `.env.example` or commit it to Git.
 
-Sign in at `/admin/` to review learner accounts, admin actions, and read-only learning activity. The admin site can display private learner submissions and tutor conversations, so limit superuser access to trusted staff. Application and HTTP request logs are sent to the Render service's **Logs** page; request logs omit query strings and client IP addresses. Local data must be restored into Neon before deployment if it has not already been migrated. Render and Neon free-tier quotas and availability can change; free services may sleep or have limited backups and should not be treated as a production uptime guarantee.
+Sign in at `/admin/` to review learner accounts, admin actions, and read-only learning activity. The admin site can display private learner submissions and tutor conversations, so limit superuser access to trusted staff. Application and HTTP request logs are sent to the Render service's **Logs** page. Request records include the route, method, status, duration, and signed-in user's ID, username, and email; they do not include request bodies, query strings, passwords, API keys, or client IP addresses. Local data must be restored into Neon before deployment if it has not already been migrated. Render and Neon free-tier quotas and availability can change; free services may sleep or have limited backups and should not be treated as a production uptime guarantee.
+
+The Gemini tutor uses `https://generativelanguage.googleapis.com/v1beta/openai` and the configured `AI_MODEL`. Verify the key is set in the Render service environment as `AI_API_KEY` or `GEMINI_API_KEY`; provider/configuration failures appear in the tutor response and Render logs. The key is never sent to the browser.
 
 ## Self-hosted Python code runner
 
