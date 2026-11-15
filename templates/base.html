@@ -34,6 +34,7 @@
         <a href="{% url 'subscription_plans' %}">Plans</a>
         {% if user.is_staff %}<a href="{% url 'admin_dashboard' %}">Admin</a>{% endif %}
         <a href="{% url 'oop_course' %}">OOP course</a>
+        <a href="{% url 'course' 'java' %}">Java</a>
         <a href="{% url 'course' 'javascript' %}">JavaScript</a>
         <a href="{% url 'course' 'html-css' %}">HTML &amp; CSS</a>
         <a href="{% url 'bookmarks' %}">Saved lessons</a>

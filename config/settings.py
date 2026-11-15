@@ -43,7 +43,7 @@ AI_API_BASE_URL = os.environ.get(
     "AI_API_BASE_URL",
     "https://generativelanguage.googleapis.com/v1beta/openai",
 )
-AI_API_KEY = os.environ.get("AI_API_KEY", "")
+AI_API_KEY = os.environ.get("AI_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
 AI_MODEL = os.environ.get("AI_MODEL", "gemini-3.5-flash-lite")
 AI_API_TIMEOUT = float(os.environ.get("AI_API_TIMEOUT", "20"))
 CODE_RUNNER_URL = os.environ.get("CODE_RUNNER_URL", "")

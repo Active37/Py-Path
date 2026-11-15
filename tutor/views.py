@@ -28,6 +28,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
 from .achievements import ACHIEVEMENTS, refresh_achievements
 from .catalog import get_lesson, get_lessons, get_tracks
+from .curriculum import LESSONS
 from .forms import LearnerCreationForm
 from .models import (
     AssignmentSubmission,
@@ -47,6 +48,7 @@ from .models import (
     LessonBookmark,
     LessonNote,
     LessonProgress,
+    LessonQuickCheck,
     ProjectProgress,
     QuizAttempt,
     StudyGroup,
@@ -73,7 +75,7 @@ def service_worker(request):
 def home(request):
     if request.user.is_authenticated:
         return redirect("dashboard")
-    return render(request, "home.html")
+    return render(request, "home.html", {"lesson_count": len(LESSONS)})
 
 
 def signup(request):
@@ -464,6 +466,12 @@ def lesson_detail(request, slug):
             "note": LessonNote.objects.filter(
                 user=request.user, lesson_slug=lesson["slug"]
             ).first(),
+            "latest_quick_check": LessonQuickCheck.objects.filter(
+                user=request.user, lesson_slug=lesson["slug"]
+            ).first(),
+            "quick_check_confidence_choices": (
+                LessonQuickCheck.CONFIDENCE_CHOICES
+            ),
             "quiz_questions": quiz_questions,
             "latest_quiz": QuizAttempt.objects.filter(
                 user=request.user, lesson_slug=lesson["slug"]
@@ -828,6 +836,35 @@ def save_note(request, slug):
             defaults={"content": content},
         )
         messages.success(request, "Your lesson note was saved.")
+    return redirect("lesson", slug=lesson["slug"])
+
+
+@login_required
+@require_POST
+def save_lesson_quick_check(request, slug):
+    lesson = get_lesson(slug)
+    if lesson is None:
+        raise Http404("Lesson not found")
+
+    answer = request.POST.get("answer", "").strip()
+    confidence = request.POST.get("confidence", "")
+    valid_confidence = dict(LessonQuickCheck.CONFIDENCE_CHOICES)
+    if not answer:
+        messages.error(request, "Write a quick answer before saving your check.")
+    elif len(answer) > 2000:
+        messages.error(request, "Keep your quick-check answer to 2,000 characters or fewer.")
+    elif confidence not in valid_confidence:
+        messages.error(request, "Choose how confident you feel about your answer.")
+    else:
+        LessonQuickCheck.objects.update_or_create(
+            user=request.user,
+            lesson_slug=lesson["slug"],
+            defaults={
+                "answer": answer,
+                "confidence": confidence,
+            },
+        )
+        messages.success(request, "Your lesson quick check was saved.")
     return redirect("lesson", slug=lesson["slug"])
 
 

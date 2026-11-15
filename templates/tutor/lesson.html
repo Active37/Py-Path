@@ -53,8 +53,31 @@
         </form>
       </section>
       <section class="feature-card">
-        <h2>{{ lesson.track }} quick check</h2>
-        <p>Answer these questions to check your understanding. Your score is saved to your profile.</p>
+        <h2>Quick check: {{ lesson.title }}</h2>
+        <p>{{ lesson.quiz }}</p>
+        <p>Answer from memory, then revisit the lesson to check your understanding. Your response is private and is not automatically graded.</p>
+        <form method="post" action="{% url 'save_lesson_quick_check' lesson.slug %}">
+          {% csrf_token %}
+          <label class="editor-label" for="quick-check-answer">Your answer</label>
+          <textarea id="quick-check-answer" class="note-editor" name="answer" maxlength="2000" rows="4" required placeholder="Explain the idea in your own words...">{% if latest_quick_check %}{{ latest_quick_check.answer }}{% endif %}</textarea>
+          <fieldset>
+            <legend>How confident do you feel?</legend>
+            {% for value, label in quick_check_confidence_choices %}
+              <label class="quiz-choice">
+                <input type="radio" name="confidence" value="{{ value }}" required{% if latest_quick_check and latest_quick_check.confidence == value %} checked{% endif %}>
+                <span>{{ label }}</span>
+              </label>
+            {% endfor %}
+          </fieldset>
+          <button class="button" type="submit">Save quick check</button>
+        </form>
+        {% if latest_quick_check %}
+          <p class="quiz-result">Last saved {{ latest_quick_check.updated_at|date:"M j, Y" }} · {{ latest_quick_check.get_confidence_display }}</p>
+        {% endif %}
+      </section>
+      <section class="feature-card">
+        <h2>{{ lesson.track }} practice quiz</h2>
+        <p>Answer these track-level questions to check your understanding. Your score is saved to your profile.</p>
         {% if latest_quiz %}
           <p class="quiz-result">Latest score: {{ latest_quiz.score }} / {{ latest_quiz.total }}</p>
         {% endif %}
@@ -127,6 +150,26 @@
       messages.scrollTop = messages.scrollHeight;
     }
 
+    async function readApiResponse(response, fallbackMessage) {
+      const body = await response.text();
+      let data;
+      try {
+        data = JSON.parse(body);
+      } catch (error) {
+        if (response.redirected) {
+          throw new Error("Your session may have expired. Reload the page and sign in again.");
+        }
+        throw new Error("The server returned an unexpected response. Please refresh and try again.");
+      }
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("The server returned an unexpected response. Please try again.");
+      }
+      if (!response.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : fallbackMessage);
+      }
+      return data;
+    }
+
     async function sendMessage(text) {
       addMessage(text, "learner");
       input.value = "";
@@ -137,8 +180,7 @@
           headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
           body: JSON.stringify({ message: text, lesson: lessonSlug })
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "The tutor could not reply.");
+        const data = await readApiResponse(response, "The tutor could not reply.");
         addMessage(data.reply, "tutor");
       } catch (error) {
         addMessage(error.message || "Something went wrong. Please try again.", "tutor");
@@ -175,8 +217,7 @@
               language: codeLanguage
             })
           });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || "The code runner could not run this program.");
+          const data = await readApiResponse(response, "The code runner could not run this program.");
           codeOutput.textContent = "Status: " + data.status + "\n\n" +
             (data.stdout || "") + (data.stderr ? "\n" + data.stderr : "");
         } catch (error) {

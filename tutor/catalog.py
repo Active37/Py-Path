@@ -208,34 +208,32 @@ def seed_courses(missing_only=False):
         for slug, course in COURSE_SEED.items()
     }
 
-    added_tracks = set()
     for course_order, track in enumerate(seed_tracks):
         track_lessons = track["lessons"]
         seed_metadata = metadata_by_track.get(track["title"])
         course_slug, metadata = seed_metadata or (slugify(track["title"]), {})
         existing_course = Course.objects.filter(track=track["title"]).first()
-        if missing_only and existing_course:
-            continue
         objectives = metadata.get(
             "objectives",
             [lesson["title"] for lesson in track_lessons[:5]],
         )
-        course, created = Course.objects.update_or_create(
-            track=track["title"],
-            defaults={
-                "slug": course_slug,
-                "title": metadata.get("title", track["title"]),
-                "description": metadata.get(
-                    "description",
-                    f"Build practical skills in {track['title']} through guided lessons and exercises.",
-                ),
-                "objectives": objectives,
-                "sort_order": course_order,
-                "is_published": True,
-            },
-        )
-        if created:
-            added_tracks.add(track["title"])
+        if missing_only and existing_course:
+            course = existing_course
+        else:
+            course, _ = Course.objects.update_or_create(
+                track=track["title"],
+                defaults={
+                    "slug": course_slug,
+                    "title": metadata.get("title", track["title"]),
+                    "description": metadata.get(
+                        "description",
+                        f"Build practical skills in {track['title']} through guided lessons and exercises.",
+                    ),
+                    "objectives": objectives,
+                    "sort_order": course_order,
+                    "is_published": True,
+                },
+            )
         for question_order, question in enumerate(TRACK_QUIZZES.get(track["title"], [])):
             question_values = {
                 "prompt": question["question"],
@@ -295,8 +293,6 @@ def seed_courses(missing_only=False):
 
     for course_slug, assignment_data in ASSIGNMENT_SEED.items():
         course_track = COURSE_SEED[course_slug]["track"]
-        if missing_only and course_track not in added_tracks:
-            continue
         course = Course.objects.get(track=course_track)
         assignment_values = {
             "course": course,

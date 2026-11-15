@@ -8,7 +8,7 @@ PyPath is a responsive Django learning platform for people learning Python and w
 
 - **Guided courses:** 140+ lessons across Python, Java, object-oriented Python, JavaScript, and HTML/CSS.
 - **Java OOP path:** 36 lessons from first program and types through polymorphism, design patterns, concurrency, and an object-oriented capstone.
-- **Practice and review:** lesson examples and exercises, quizzes, hints, bookmarks, and private lesson notes.
+- **Practice and review:** lesson examples and exercises, saved private lesson-specific active-recall checks, track quizzes, hints, bookmarks, and notes.
 - **AI tutor:** lesson-aware programming help powered by an OpenAI-compatible chat-completions API, including Gemini.
 - **Progress tracking:** completed lessons, daily goals, streaks, XP, badges, and an activity calendar.
 - **Projects and careers:** guided project milestones, assignments, study groups, community discussions, and career practice.
@@ -67,7 +67,7 @@ python manage.py runserver
 
 Open <http://127.0.0.1:8000/>.
 
-> **Note:** `seed_courses` refreshes the starter course content. Use it for an empty development database. The deployment uses `seed_courses --if-empty` so it does not overwrite an existing catalog.
+> **Note:** `seed_courses` refreshes starter course content. Use it for an empty development database. The deployment uses `seed_courses --missing-only`, which adds missing courses and repairs missing lessons, assessments, and assignments while preserving existing course and lesson edits.
 
 ## Accounts
 
@@ -83,7 +83,7 @@ AI_API_KEY=your-gemini-api-key
 AI_MODEL=gemini-3.5-flash-lite
 ```
 
-Restart Django after changing environment variables. Keep API keys on the server; do not expose them in browser code or commit them to GitHub. Tutor hints and quizzes use course material and do not require an AI API key.
+Restart Django after changing environment variables. Set either `AI_API_KEY` or `GEMINI_API_KEY` on the server; `AI_API_KEY` takes precedence. Keep API keys out of browser code and GitHub. Tutor hints and quizzes use course material and do not require an AI API key.
 
 ## Run tests
 

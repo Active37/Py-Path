@@ -58,6 +58,11 @@ urlpatterns = [
     path("lesson/<slug:slug>/complete/", views.complete_lesson, name="complete_lesson"),
     path("lesson/<slug:slug>/bookmark/", views.toggle_bookmark, name="toggle_bookmark"),
     path("lesson/<slug:slug>/notes/", views.save_note, name="save_note"),
+    path(
+        "lesson/<slug:slug>/quick-check/",
+        views.save_lesson_quick_check,
+        name="save_lesson_quick_check",
+    ),
     path("lesson/<slug:slug>/quiz/", views.submit_quiz, name="submit_quiz"),
     path("bookmarks/", views.bookmarks, name="bookmarks"),
     path("profile/", views.profile, name="profile"),

@@ -5,7 +5,7 @@
   <div class="hero-copy">
     <p class="eyebrow"><span class="eyebrow-sparkle" aria-hidden="true">✦</span> YOUR NEXT CHAPTER STARTS HERE</p>
     <h1>Make your curiosity <span>your superpower.</span></h1>
-    <p class="lead">Go from first line to real-world skills with friendly, guided paths in Python, JavaScript, and web development. Learn at your pace. Keep every win.</p>
+    <p class="lead">Go from your first line to real-world skills with friendly, guided paths in Python, Java, JavaScript, and web development. Learn at your pace. Keep every win.</p>
     <div class="actions">
       <a class="button hero-cta" href="{% url 'signup' %}">Start your free journey <span aria-hidden="true">↗</span></a>
       <a class="text-link" href="{% url 'login' %}">I have an account</a>
@@ -32,8 +32,8 @@
 <section class="home-proof" aria-label="What you can learn">
   <p class="proof-label">A little structure goes a long way</p>
   <div class="value-strip">
-    <div><strong>106</strong><span>guided lessons</span></div>
-    <div><strong>3 paths</strong><span>Python, JavaScript, web</span></div>
+    <div><strong>{{ lesson_count }}</strong><span>guided lessons</span></div>
+    <div><strong>4 paths</strong><span>Python, Java, JavaScript, web</span></div>
     <div><strong>Your pace</strong><span>progress saved as you go</span></div>
   </div>
 </section>
@@ -47,6 +47,11 @@
     <article class="path-card path-python">
       <span class="path-icon" aria-hidden="true">&lt;/&gt;</span><span class="path-tag">START HERE</span>
       <h3>Python</h3><p>Build a strong foundation, then explore object-oriented and advanced Python.</p>
+      <a href="{% url 'signup' %}">Explore the path <span aria-hidden="true">→</span></a>
+    </article>
+    <article class="path-card path-java">
+      <span class="path-icon" aria-hidden="true">J</span><span class="path-tag">OBJECT-ORIENTED DESIGN</span>
+      <h3>Java</h3><p>Start with your first program and progress through object-oriented design to advanced topics.</p>
       <a href="{% url 'signup' %}">Explore the path <span aria-hidden="true">→</span></a>
     </article>
     <article class="path-card path-js">

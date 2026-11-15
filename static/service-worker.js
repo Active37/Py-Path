@@ -1,13 +1,13 @@
-const CACHE_NAME = "pypath-shell-v6";
+const CACHE_NAME = "pypath-shell-v9";
 const APP_SHELL = [
-  "/static/app.css",
-  "/static/app.js",
-  "/static/manifest.webmanifest",
-  "/static/pwa/icon.svg",
-  "/static/pwa/icon-192.png",
-  "/static/pwa/icon-512.png",
-  "/static/pwa/apple-touch-icon.png",
-  "/static/offline.html"
+  "/static/app.css?v=9",
+  "/static/app.js?v=9",
+  "/static/manifest.webmanifest?v=9",
+  "/static/pwa/icon.svg?v=9",
+  "/static/pwa/icon-192.png?v=9",
+  "/static/pwa/icon-512.png?v=9",
+  "/static/pwa/apple-touch-icon.png?v=9",
+  "/static/offline.html?v=9"
 ];
 
 self.addEventListener("install", (event) => {
@@ -36,14 +36,14 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request).catch(() => caches.match("/static/offline.html"))
+      fetch(request).catch(() => caches.match("/static/offline.html", { ignoreSearch: true }))
     );
     return;
   }
 
   if (url.pathname.startsWith("/static/")) {
     event.respondWith(
-      caches.match(request).then((cached) => cached || fetch(request))
+      caches.match(request, { ignoreSearch: true }).then((cached) => cached || fetch(request))
     );
   }
 });

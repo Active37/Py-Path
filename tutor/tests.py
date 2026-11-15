@@ -29,6 +29,7 @@ from .models import (
     LessonBookmark,
     LessonNote,
     LessonProgress,
+    LessonQuickCheck,
     ProjectProgress,
     QuizAttempt,
     StudyGroup,
@@ -97,6 +98,26 @@ class LearningPlatformTests(TestCase):
                 slug="java-oop-library-catalog",
                 course=java,
             ).exists()
+        )
+
+    def test_seed_courses_missing_only_repairs_partial_course_without_overwriting_edits(self):
+        java = Course.objects.get(slug="java")
+        custom_lesson = java.lessons.first()
+        custom_lesson.title = "My Java lesson"
+        custom_lesson.save(update_fields=["title"])
+        java.lessons.exclude(pk=custom_lesson.pk).delete()
+        java.assessment_questions.all().delete()
+        java.assignments.all().delete()
+
+        call_command("seed_courses", "--missing-only", verbosity=0)
+
+        java.refresh_from_db()
+        custom_lesson.refresh_from_db()
+        self.assertEqual(java.lessons.count(), 36)
+        self.assertEqual(custom_lesson.title, "My Java lesson")
+        self.assertGreater(java.assessment_questions.count(), 0)
+        self.assertTrue(
+            java.assignments.filter(slug="java-oop-library-catalog").exists()
         )
 
     def test_chat_returns_lesson_specific_hint_and_quiz(self):
@@ -184,10 +205,20 @@ class LearningPlatformTests(TestCase):
         self.assertContains(dashboard, LESSONS[0]["title"])
         self.assertContains(dashboard, f"0 / {len(LESSONS)}")
         self.assertContains(dashboard, "Object-Oriented Python")
+        self.assertContains(dashboard, reverse("course", args=["java"]))
         self.assertEqual(lesson.status_code, 200)
         self.assertContains(lesson, "Your Python tutor")
         self.assertContains(lesson, "Your lesson notes")
         self.assertContains(lesson, "Submit quiz")
+
+    def test_homepage_lists_java_and_current_curriculum_size(self):
+        self.client.logout()
+
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, "Java: Beginner to Advanced OOP")
+        self.assertContains(response, f">{len(LESSONS)}<")
+        self.assertContains(response, "4 paths")
 
     def test_browser_playground_has_starter_project_and_is_sandboxed(self):
         response = self.client.get(reverse("web_playground"))
@@ -213,7 +244,7 @@ class LearningPlatformTests(TestCase):
         detail = self.client.get(reverse("lesson", args=[lesson["slug"]]))
 
         self.assertContains(dashboard, "Last 12 weeks")
-        self.assertContains(detail, "Lesson 2 of 106")
+        self.assertContains(detail, f"Lesson 2 of {len(LESSONS)}")
         self.assertContains(detail, reverse("lesson", args=[LESSONS[0]["slug"]]))
         self.assertContains(detail, reverse("lesson", args=[LESSONS[2]["slug"]]))
         self.assertContains(detail, "Lesson checklist")
@@ -394,6 +425,69 @@ class LearningPlatformTests(TestCase):
             "Remember to check the interpreter version.",
         )
         self.assertContains(self.client.get(reverse("lesson", args=[lesson_slug])), "Remember to check")
+
+    def test_lesson_quick_check_saves_private_answer_and_confidence(self):
+        lesson = LESSONS[0]
+        response = self.client.post(
+            reverse("save_lesson_quick_check", args=[lesson["slug"]]),
+            {
+                "answer": "The interpreter executes the source file.",
+                "confidence": "getting_there",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        quick_check = LessonQuickCheck.objects.get(
+            user=self.user, lesson_slug=lesson["slug"]
+        )
+        self.assertEqual(quick_check.answer, "The interpreter executes the source file.")
+        self.assertEqual(quick_check.confidence, "getting_there")
+        self.assertContains(
+            self.client.get(reverse("lesson", args=[lesson["slug"]])),
+            lesson["quiz"],
+        )
+        self.assertContains(
+            self.client.get(reverse("lesson", args=[lesson["slug"]])),
+            "The interpreter executes the source file.",
+        )
+
+        self.client.post(
+            reverse("save_lesson_quick_check", args=[lesson["slug"]]),
+            {"answer": "Updated answer", "confidence": "confident"},
+        )
+        quick_check.refresh_from_db()
+        self.assertEqual(quick_check.answer, "Updated answer")
+        self.assertEqual(
+            LessonQuickCheck.objects.filter(
+                user=self.user, lesson_slug=lesson["slug"]
+            ).count(),
+            1,
+        )
+
+        other_user = User.objects.create_user(
+            username="quick-check-reader",
+            password="safe-test-password",
+        )
+        self.client.force_login(other_user)
+        self.assertNotContains(
+            self.client.get(reverse("lesson", args=[lesson["slug"]])),
+            "Updated answer",
+        )
+
+    def test_lesson_quick_check_rejects_empty_or_invalid_submission(self):
+        lesson_slug = LESSONS[0]["slug"]
+        for data in (
+            {"answer": " ", "confidence": "confident"},
+            {"answer": "An answer", "confidence": "invalid"},
+            {"answer": "x" * 2001, "confidence": "confident"},
+        ):
+            response = self.client.post(
+                reverse("save_lesson_quick_check", args=[lesson_slug]),
+                data,
+            )
+            self.assertEqual(response.status_code, 302)
+
+        self.assertFalse(LessonQuickCheck.objects.filter(user=self.user).exists())
 
     def test_quiz_scores_are_saved_and_invalid_answers_are_rejected(self):
         lesson = LESSONS[0]
@@ -963,6 +1057,18 @@ class LearningPlatformTests(TestCase):
 
         self.assertNotIn("test-secret", str(raised.exception))
 
+    @override_settings(
+        AI_API_KEY="test-key",
+        AI_API_BASE_URL="https://provider.test/v1",
+        AI_MODEL="test-model",
+    )
+    @patch("tutor.services.urlopen")
+    def test_ai_tutor_handles_non_json_provider_response(self, mock_urlopen):
+        mock_urlopen.return_value = BytesIO(b"<html>upstream error</html>")
+
+        with self.assertRaisesRegex(TutorServiceError, "invalid response"):
+            get_ai_reply("Help me", LESSONS[0], [])
+
     @patch("tutor.views.get_ai_reply", return_value="Try using a for loop.")
     def test_chat_saves_history_per_user_and_lesson(self, mock_get_ai_reply):
         response = self.client.post(
@@ -988,6 +1094,27 @@ class LearningPlatformTests(TestCase):
         self.assertEqual(len(history), 2)
         self.assertEqual(history[0]["role"], "user")
         self.assertEqual(history[1]["role"], "assistant")
+
+    @patch(
+        "tutor.views.get_ai_reply",
+        side_effect=TutorServiceError("Gemini returned an unavailable response."),
+    )
+    def test_chat_reports_gemini_errors_as_json(self, mock_get_ai_reply):
+        response = self.client.post(
+            reverse("chat"),
+            data=json.dumps(
+                {"message": "Explain this topic", "lesson": LESSONS[0]["slug"]}
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response["Content-Type"], "application/json")
+        self.assertEqual(
+            response.json(),
+            {"error": "Gemini returned an unavailable response."},
+        )
+        mock_get_ai_reply.assert_called_once()
 
     @patch("tutor.views.run_python_code", return_value={
         "stdout": "Hello\n",

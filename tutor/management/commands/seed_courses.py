@@ -17,7 +17,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--missing-only",
             action="store_true",
-            help="Add courses that do not exist yet without updating existing course content.",
+            help="Add missing courses and related content without overwriting existing course data.",
         )
 
     def handle(self, *args, **options):

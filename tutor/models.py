@@ -298,6 +298,33 @@ class LessonNote(models.Model):
         ]
 
 
+class LessonQuickCheck(models.Model):
+    CONFIDENCE_CHOICES = [
+        ("still_learning", "I need more practice"),
+        ("getting_there", "I’m getting there"),
+        ("confident", "I feel confident"),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="lesson_quick_checks",
+    )
+    lesson_slug = models.SlugField(max_length=80)
+    answer = models.TextField(max_length=2000)
+    confidence = models.CharField(max_length=20, choices=CONFIDENCE_CHOICES)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "lesson_slug"],
+                name="unique_user_lesson_quick_check",
+            )
+        ]
+
+
 class QuizAttempt(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
