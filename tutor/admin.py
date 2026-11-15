@@ -1,4 +1,8 @@
 from django.contrib import admin
+from django.contrib.admin.models import LogEntry
+from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.db import models
 
 from .models import (
     AssignmentSubmission,
@@ -11,13 +15,130 @@ from .models import (
     CourseAssignment,
     CourseLesson,
     CourseModule,
+    DailyActivity,
     DiscussionPost,
     DiscussionReply,
+    EarnedAchievement,
+    LearnerProfile,
+    LessonBookmark,
+    LessonNote,
+    LessonProgress,
+    LessonQuickCheck,
+    ProjectProgress,
+    QuizAttempt,
     StudyGroup,
     StudyGroupMembership,
+    StudyPlanItem,
     SubscriptionPlan,
+    TutorMessage,
     UserSubscription,
 )
+
+admin.site.site_header = "PyPath administration"
+admin.site.site_title = "PyPath admin"
+admin.site.index_title = "Platform oversight"
+
+
+class ReadOnlyAuditAdmin(admin.ModelAdmin):
+    list_per_page = 50
+
+    def get_list_display(self, request):
+        field_names = {field.name for field in self.model._meta.fields}
+        preferred = (
+            "id",
+            "user",
+            "course",
+            "lesson",
+            "module",
+            "group",
+            "title",
+            "name",
+            "status",
+            "role",
+            "is_active",
+            "created_at",
+            "updated_at",
+            "completed_at",
+        )
+        return tuple(name for name in preferred if name in field_names)
+
+    def get_list_filter(self, request):
+        return tuple(
+            field.name
+            for field in self.model._meta.fields
+            if isinstance(field, models.BooleanField) or field.choices
+        )
+
+    def get_readonly_fields(self, request, obj=None):
+        return tuple(field.name for field in self.model._meta.fields) + tuple(
+            field.name for field in self.model._meta.many_to_many
+        )
+
+    def get_search_fields(self, request):
+        fields = [
+            field.name
+            for field in self.model._meta.fields
+            if isinstance(field, models.CharField)
+        ]
+        user_model = get_user_model()
+        for field in self.model._meta.fields:
+            if (
+                isinstance(field, models.ForeignKey)
+                and field.remote_field.model == user_model
+            ):
+                fields.append(f"{field.name}__username")
+        return tuple(fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class AccountAdmin(DjangoUserAdmin):
+    list_display = (
+        "username",
+        "email",
+        "is_active",
+        "is_staff",
+        "date_joined",
+        "last_login",
+    )
+    list_filter = ("is_active", "is_staff", "is_superuser", "date_joined")
+    search_fields = ("username", "email")
+    ordering = ("-date_joined",)
+
+
+user_model = get_user_model()
+if admin.site.is_registered(user_model):
+    admin.site.unregister(user_model)
+admin.site.register(user_model, AccountAdmin)
+admin.site.register(
+    [
+        CourseAssessmentQuestion,
+        CourseAssignment,
+        DailyActivity,
+        EarnedAchievement,
+        LearnerProfile,
+        LessonBookmark,
+        LessonNote,
+        LessonProgress,
+        LessonQuickCheck,
+        ProjectProgress,
+        QuizAttempt,
+        StudyPlanItem,
+        TutorMessage,
+    ],
+    ReadOnlyAuditAdmin,
+)
+
+
+@admin.register(LogEntry)
+class AdminLogEntryAdmin(ReadOnlyAuditAdmin):
+    list_display = ("action_time", "user", "content_type", "object_repr", "action_flag")
+    list_filter = ("action_flag", "action_time", "content_type")
+    search_fields = ("object_repr", "change_message", "user__username")
 
 
 class CourseModuleInline(admin.TabularInline):

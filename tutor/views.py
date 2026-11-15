@@ -1,5 +1,6 @@
 import html
 import json
+import logging
 import re
 from datetime import date, timedelta
 from io import BytesIO
@@ -64,6 +65,9 @@ from .resources import RESOURCE_GROUPS
 from .services import TutorServiceError, get_ai_reply, run_python_code
 
 
+logger = logging.getLogger(__name__)
+
+
 def service_worker(request):
     worker_path = Path(settings.BASE_DIR, "static", "service-worker.js")
     response = HttpResponse(worker_path.read_text(encoding="utf-8"), content_type="application/javascript")
@@ -84,6 +88,7 @@ def signup(request):
     form = LearnerCreationForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         user = form.save()
+        logger.info("Learner account created (user_id=%s)", user.pk)
         login(request, user)
         return redirect("dashboard")
     return render(request, "registration/signup.html", {"form": form})

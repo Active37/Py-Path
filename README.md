@@ -105,10 +105,13 @@ PyPath serves the UI, backend, and static assets from one Django web service. Ne
    - `DATABASE_URL`: Neon’s **pooled** PostgreSQL connection URL for app requests.
    - `DATABASE_URL_UNPOOLED`: Neon’s **direct** PostgreSQL connection URL for migrations and seeding.
    - `AI_API_KEY`: your Gemini API key.
+   - `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, and `DJANGO_SUPERUSER_PASSWORD`: set all three in Render’s environment settings to bootstrap the first admin account.
 4. Let Render generate `DJANGO_SECRET_KEY`. The Blueprint sets `DJANGO_DEBUG=0`; Django uses the Render hostname automatically.
 5. Review the build logs. When the deployment succeeds, open the Render service URL and test the site.
 
-The build collects static assets, applies migrations with the direct database URL, and adds missing starter courses and lessons without overwriting existing course content. Local data must be restored into Neon before deployment if it has not already been migrated. Render and Neon free-tier quotas and availability can change; free services may sleep or have limited backups and should not be treated as a production uptime guarantee.
+The build collects static assets, applies migrations with the direct database URL, optionally creates the initial admin account, and adds missing starter courses and lessons without overwriting existing course content. The admin bootstrap is skipped if all three `DJANGO_SUPERUSER_*` values are unset, and it never changes an existing superuser's password. Remove `DJANGO_SUPERUSER_PASSWORD` from Render after the account has been created. Never put a real password in `.env.example` or commit it to Git.
+
+Sign in at `/admin/` to review learner accounts, admin actions, and read-only learning activity. The admin site can display private learner submissions and tutor conversations, so limit superuser access to trusted staff. Application and HTTP request logs are sent to the Render service's **Logs** page; request logs omit query strings and client IP addresses. Local data must be restored into Neon before deployment if it has not already been migrated. Render and Neon free-tier quotas and availability can change; free services may sleep or have limited backups and should not be treated as a production uptime guarantee.
 
 ## Self-hosted Python code runner
 
@@ -139,6 +142,7 @@ For a custom domain, add its hostname to `DJANGO_ALLOWED_HOSTS` and its HTTPS or
 ## Security and privacy
 
 - Store database URLs, Django secrets, and AI keys only in local ignored environment files or your hosting provider’s secret settings.
+- Store the initial admin password only in a local ignored `.env` or Render secret setting; `.env.example` contains blank placeholders.
 - Use HTTPS and a unique `DJANGO_SECRET_KEY` in production.
 - The browser playground sandbox restricts access to the parent page and blocks external resource loading and form submission.
 - Private learner notes, tutor conversations, and quiz answers are not shown on public profiles.

@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.contrib.staticfiles.finders import find
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -1194,3 +1195,73 @@ class LearningPlatformTests(TestCase):
         self.assertEqual(payload["memory_limit"], 128000)
         self.assertEqual(payload["stdin"], "input")
         self.assertEqual(request.headers["X-auth-token"], "test-runner-key")
+
+
+class AdminOversightTests(TestCase):
+    def test_successful_signup_is_written_to_application_logs(self):
+        with self.assertLogs("tutor.views", level="INFO") as account_logs:
+            response = self.client.post(
+                reverse("signup"),
+                {
+                    "username": "audited-learner",
+                    "email": "audited-learner@example.test",
+                    "password1": "Audited-learner-password-384!",
+                    "password2": "Audited-learner-password-384!",
+                },
+            )
+
+        self.assertRedirects(response, reverse("dashboard"))
+        self.assertIn("Learner account created (user_id=", account_logs.output[0])
+
+    def test_superuser_can_review_registered_user_accounts(self):
+        admin_user = User.objects.create_superuser(
+            username="site-owner",
+            email="owner@example.test",
+            password="Admin-review-password-384!",
+        )
+        learner = User.objects.create_user(
+            username="registered-learner",
+            email="learner@example.test",
+            password="Learner-review-password-384!",
+        )
+        self.client.force_login(admin_user)
+
+        response = self.client.get(reverse("admin:auth_user_changelist"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, learner.username)
+        self.assertContains(response, learner.email)
+
+    def test_bootstrap_command_creates_admin_once_without_resetting_password(self):
+        credentials = {
+            "DJANGO_SUPERUSER_USERNAME": "bootstrap-owner",
+            "DJANGO_SUPERUSER_EMAIL": "bootstrap-owner@example.test",
+            "DJANGO_SUPERUSER_PASSWORD": "Bootstrap-only-password-384!",
+        }
+        with patch.dict("os.environ", credentials):
+            call_command("bootstrap_admin", verbosity=0)
+            admin_user = User.objects.get(username=credentials["DJANGO_SUPERUSER_USERNAME"])
+            original_password_hash = admin_user.password
+
+            with patch.dict(
+                "os.environ",
+                {"DJANGO_SUPERUSER_PASSWORD": "Changed-deploy-password-384!"},
+            ):
+                call_command("bootstrap_admin", verbosity=0)
+
+        admin_user.refresh_from_db()
+        self.assertTrue(admin_user.is_superuser)
+        self.assertEqual(admin_user.password, original_password_hash)
+        self.assertTrue(
+            admin_user.check_password(credentials["DJANGO_SUPERUSER_PASSWORD"])
+        )
+
+    def test_bootstrap_command_rejects_partial_credentials(self):
+        credentials = {
+            "DJANGO_SUPERUSER_USERNAME": "partial-owner",
+            "DJANGO_SUPERUSER_EMAIL": "",
+            "DJANGO_SUPERUSER_PASSWORD": "",
+        }
+        with patch.dict("os.environ", credentials):
+            with self.assertRaises(CommandError):
+                call_command("bootstrap_admin", verbosity=0)
