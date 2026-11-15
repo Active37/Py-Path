@@ -78,9 +78,9 @@ New accounts require an email address and password. Different accounts may use t
 Set these variables in `.env`:
 
 ```dotenv
-AI_API_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+AI_API_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 AI_API_KEY=your-gemini-api-key
-AI_MODEL=gemini-3.5-flash-lite
+AI_MODEL=gemini-flash-latest
 ```
 
 Restart Django after changing environment variables. Set either `AI_API_KEY` or `GEMINI_API_KEY` on the server; `AI_API_KEY` takes precedence. Keep API keys out of browser code and GitHub. Tutor hints and quizzes use course material and do not require an AI API key.
@@ -113,7 +113,7 @@ The build collects static assets, applies migrations with the direct database UR
 
 Sign in at `/admin/` to review learner accounts, admin actions, and read-only learning activity. The admin site can display private learner submissions and tutor conversations, so limit superuser access to trusted staff. Application and HTTP request logs are sent to the Render service's **Logs** page. Request records include the route, method, status, duration, and signed-in user's ID, username, and email; they do not include request bodies, query strings, passwords, API keys, or client IP addresses. Local data must be restored into Neon before deployment if it has not already been migrated. Render and Neon free-tier quotas and availability can change; free services may sleep or have limited backups and should not be treated as a production uptime guarantee.
 
-The Gemini tutor uses `https://generativelanguage.googleapis.com/v1beta/openai` and the configured `AI_MODEL`. Verify the key is set in the Render service environment as `AI_API_KEY` or `GEMINI_API_KEY`; provider/configuration failures appear in the tutor response and Render logs. The key is never sent to the browser.
+The Gemini tutor uses the native `generateContent` API. Set `AI_API_BASE_URL` to `https://generativelanguage.googleapis.com/v1beta` (or to a full model endpoint ending in `:generateContent`) and `AI_MODEL` to the model name, such as `gemini-flash-latest`. Set `AI_API_KEY` or `GEMINI_API_KEY` in Render; provider/configuration failures appear in the tutor response and Render logs. The key is sent only in the server-to-server `X-goog-api-key` header and is never sent to the browser.
 
 ## Self-hosted Python code runner
 

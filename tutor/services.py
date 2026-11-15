@@ -1,7 +1,7 @@
 import json
 import logging
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from django.conf import settings
@@ -12,6 +12,19 @@ logger = logging.getLogger(__name__)
 
 class TutorServiceError(Exception):
     pass
+
+
+def _gemini_generate_content_url():
+    base_url = settings.AI_API_BASE_URL.rstrip("/")
+    if base_url.endswith(":generateContent"):
+        return base_url
+
+    parsed_url = urlsplit(base_url)
+    if parsed_url.path.endswith("/v1beta/openai"):
+        parsed_url = parsed_url._replace(path=parsed_url.path[:-len("/openai")])
+        base_url = urlunsplit(parsed_url)
+
+    return f"{base_url}/models/{settings.AI_MODEL}:generateContent"
 
 
 def get_ai_reply(question, lesson, history):
@@ -36,27 +49,33 @@ def get_ai_reply(question, lesson, history):
         f"Current lesson: {lesson['title']} ({lesson['track']}). "
         f"Lesson notes: {lesson['body']} Exercise: {lesson['exercise']}"
     )
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(history[-10:])
-    messages.append({"role": "user", "content": question})
+    contents = []
+    for message in history[-10:]:
+        if message["role"] not in {"user", "assistant"}:
+            continue
+        contents.append(
+            {
+                "role": "model" if message["role"] == "assistant" else "user",
+                "parts": [{"text": message["content"]}],
+            }
+        )
+    contents.append({"role": "user", "parts": [{"text": question}]})
     payload = json.dumps(
         {
-            "model": settings.AI_MODEL,
-            "messages": messages,
-            "temperature": 0.4,
-            "max_tokens": 700,
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": contents,
+            "generationConfig": {
+                "temperature": 0.4,
+                "maxOutputTokens": 700,
+            },
         }
     ).encode("utf-8")
     request = Request(
-        f"{settings.AI_API_BASE_URL.rstrip('/')}/chat/completions",
+        _gemini_generate_content_url(),
         data=payload,
         headers={
             "Content-Type": "application/json",
-            **(
-                {"Authorization": f"Bearer {settings.AI_API_KEY}"}
-                if settings.AI_API_KEY
-                else {}
-            ),
+            "X-goog-api-key": settings.AI_API_KEY,
         },
         method="POST",
     )
@@ -92,15 +111,34 @@ def get_ai_reply(question, lesson, history):
         ) from error
 
     try:
-        reply = result["choices"][0]["message"]["content"]
+        candidate = result["candidates"][0]
+        parts = candidate["content"]["parts"]
+        reply = "".join(
+            part["text"]
+            for part in parts
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        )
     except (KeyError, IndexError, TypeError) as error:
-        logger.warning("AI provider response did not contain a chat completion")
+        prompt_feedback = (
+            result.get("promptFeedback", {}) if isinstance(result, dict) else {}
+        )
+        block_reason = (
+            prompt_feedback.get("blockReason")
+            if isinstance(prompt_feedback, dict)
+            else None
+        )
+        if block_reason:
+            logger.warning("Gemini blocked a tutor prompt: %s", block_reason)
+            raise TutorServiceError(
+                f"Gemini could not answer this prompt ({block_reason}). Try rephrasing it."
+            ) from error
+        logger.warning("Gemini response did not contain a text candidate")
         raise TutorServiceError(
-            "The AI tutor returned an unexpected response. Please try again."
+            "Gemini returned an unexpected response. Please try again."
         ) from error
     if not isinstance(reply, str) or not reply.strip():
-        logger.warning("AI provider returned an empty chat completion")
-        raise TutorServiceError("The AI tutor returned an empty response.")
+        logger.warning("Gemini returned an empty text candidate")
+        raise TutorServiceError("Gemini returned an empty response.")
     return reply.strip()[:8000]
 
 

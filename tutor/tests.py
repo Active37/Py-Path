@@ -1010,19 +1010,46 @@ class LearningPlatformTests(TestCase):
     def test_ai_tutor_uses_lesson_context_and_chat_history(self, mock_urlopen):
         mock_urlopen.return_value = BytesIO(
             json.dumps(
-                {"choices": [{"message": {"content": "A helpful explanation."}}]}
+                {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [{"text": "A helpful explanation."}]
+                            }
+                        }
+                    ]
+                }
             ).encode()
         )
-        history = [{"role": "user", "content": "What is a variable?"}]
+        history = [
+            {"role": "user", "content": "What is a variable?"},
+            {"role": "assistant", "content": "A named place to store a value."},
+        ]
 
         reply = get_ai_reply("Explain it again", LESSONS[0], history)
 
         self.assertEqual(reply, "A helpful explanation.")
         request = mock_urlopen.call_args.args[0]
         payload = json.loads(request.data)
-        self.assertEqual(request.full_url, "https://provider.test/v1/chat/completions")
-        self.assertEqual(payload["messages"][1], history[0])
-        self.assertIn(LESSONS[0]["title"], payload["messages"][0]["content"])
+        self.assertEqual(
+            request.full_url,
+            "https://provider.test/v1/models/test-model:generateContent",
+        )
+        self.assertEqual(
+            payload["contents"][0],
+            {"role": "user", "parts": [{"text": history[0]["content"]}]},
+        )
+        self.assertEqual(
+            payload["contents"][1],
+            {"role": "model", "parts": [{"text": history[1]["content"]}]},
+        )
+        self.assertEqual(request.get_header("X-goog-api-key"), "test-key")
+        self.assertIsNone(request.get_header("Authorization"))
+        self.assertIn(
+            LESSONS[0]["title"],
+            payload["systemInstruction"]["parts"][0]["text"],
+        )
+        self.assertEqual(payload["generationConfig"]["maxOutputTokens"], 700)
 
     @override_settings(
         AI_API_KEY="test-key",
@@ -1033,7 +1060,15 @@ class LearningPlatformTests(TestCase):
     def test_ai_tutor_uses_the_current_course_language(self, mock_urlopen):
         mock_urlopen.return_value = BytesIO(
             json.dumps(
-                {"choices": [{"message": {"content": "Use a const binding."}}]}
+                {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [{"text": "Use a const binding."}]
+                            }
+                        }
+                    ]
+                }
             ).encode()
         )
         javascript_lesson = next(
@@ -1043,7 +1078,10 @@ class LearningPlatformTests(TestCase):
         get_ai_reply("How do I declare a constant?", javascript_lesson, [])
 
         payload = json.loads(mock_urlopen.call_args.args[0].data)
-        self.assertIn("Course language: JavaScript", payload["messages"][0]["content"])
+        self.assertIn(
+            "Course language: JavaScript",
+            payload["systemInstruction"]["parts"][0]["text"],
+        )
 
     @override_settings(
         AI_API_KEY="test-secret",
@@ -1056,7 +1094,7 @@ class LearningPlatformTests(TestCase):
             {"error": {"message": "Model unavailable for this API key."}}
         ).encode()
         mock_urlopen.side_effect = HTTPError(
-            "https://provider.test/v1/chat/completions",
+            "https://provider.test/v1/models/unavailable-model:generateContent",
             404,
             "Not Found",
             {},
@@ -1079,6 +1117,59 @@ class LearningPlatformTests(TestCase):
 
         with self.assertRaisesRegex(TutorServiceError, "invalid response"):
             get_ai_reply("Help me", LESSONS[0], [])
+
+    @override_settings(
+        AI_API_KEY="test-key",
+        AI_API_BASE_URL=(
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            "gemini-flash-latest:generateContent"
+        ),
+        AI_MODEL="gemini-flash-latest",
+    )
+    @patch("tutor.services.urlopen")
+    def test_ai_tutor_uses_a_full_gemini_generate_content_url(self, mock_urlopen):
+        mock_urlopen.return_value = BytesIO(
+            json.dumps(
+                {
+                    "candidates": [
+                        {"content": {"parts": [{"text": "Gemini is ready."}]}}
+                    ]
+                }
+            ).encode()
+        )
+
+        reply = get_ai_reply("Say hello", LESSONS[0], [])
+
+        self.assertEqual(reply, "Gemini is ready.")
+        self.assertEqual(
+            mock_urlopen.call_args.args[0].full_url,
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            "gemini-flash-latest:generateContent",
+        )
+
+    @override_settings(
+        AI_API_KEY="test-key",
+        AI_API_BASE_URL="https://provider.test/v1beta/openai",
+        AI_MODEL="test-model",
+    )
+    @patch("tutor.services.urlopen")
+    def test_ai_tutor_migrates_legacy_openai_base_path(self, mock_urlopen):
+        mock_urlopen.return_value = BytesIO(
+            json.dumps(
+                {
+                    "candidates": [
+                        {"content": {"parts": [{"text": "Gemini is ready."}]}}
+                    ]
+                }
+            ).encode()
+        )
+
+        get_ai_reply("Say hello", LESSONS[0], [])
+
+        self.assertEqual(
+            mock_urlopen.call_args.args[0].full_url,
+            "https://provider.test/v1beta/models/test-model:generateContent",
+        )
 
     @patch("tutor.views.get_ai_reply", return_value="Try using a for loop.")
     def test_chat_saves_history_per_user_and_lesson(self, mock_get_ai_reply):
