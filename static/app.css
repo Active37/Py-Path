@@ -124,7 +124,6 @@ pre { overflow-x: auto; font: 13px/1.9 Consolas,monospace; }
 .empty-state { max-width: 980px; margin: 12px auto; padding: 22px; color: var(--muted); font-size: 13px; }
 .profile-stats { max-width: 932px; margin: 0 auto 20px; padding: 0 24px; display: grid; grid-template-columns: repeat(5,1fr); gap: 10px; }.profile-stats article { display: flex; flex-direction: column; gap: 5px; padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: white; }.profile-stats strong { color: var(--green-dark); font-family: Manrope,sans-serif; font-size: 19px; }.profile-stats span { color: var(--muted); font-size: 10px; }
 .profile-columns { max-width: 932px; margin: 0 auto; padding: 0 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }.profile-columns .feature-card { margin: 0; }.profile-form { display: flex; flex-direction: column; gap: 9px; }.profile-form small { color: var(--muted); font-size: 10px; }.profile-form .button { align-self: flex-start; margin-top: 6px; }.track-progress-list { display: grid; gap: 10px; }.track-progress-list .progress-top { font-size: 10px; }.track-progress-list .progress-track { margin: 6px 0 0; }.profile-quiz-history { max-width: 884px; margin: 18px auto 0; }.quiz-history-row { display: grid; grid-template-columns: 1fr auto auto; gap: 16px; padding: 11px 0; border-top: 1px solid var(--line); color: #52615a; font-size: 11px; }.quiz-history-row strong { color: var(--green-dark); }.quiz-history-row small { color: var(--muted); }.profile-shortcut { max-width: 884px; margin: 18px auto 40px; font-size: 12px; }
-.otp-card h1 { margin-bottom: 10px; }.otp-destination { margin: 20px 0 8px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }.otp-countdown { min-height: 20px; margin: 8px 0; color: var(--green-dark); font-size: 12px; font-weight: 700; }.otp-code-input { text-align: center; font-size: 24px!important; font-variant-numeric: tabular-nums; letter-spacing: .45em; }.otp-resend-form { margin-top: 12px; }.otp-resend-form button:disabled { cursor: wait; opacity: .7; box-shadow: none; }.otp-submit-spinner { display: inline-block; width: 14px; height: 14px; margin-left: 8px; vertical-align: -2px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: otp-spin .7s linear infinite; }
 @media (max-width: 920px) {
   .topbar { padding-top: 12px; padding-bottom: 12px; }
   .hero { grid-template-columns: 1fr; gap: 32px; padding-top: 64px; }
@@ -2200,12 +2199,4 @@ small {
     font-size: 13px;
     overflow-wrap: anywhere;
   }
-}
-
-@keyframes otp-spin {
-  to { transform: rotate(360deg); }
-}
-
-.otp-submit-spinner[hidden] {
-  display: none;
 }

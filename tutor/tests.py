@@ -1,8 +1,7 @@
 import json
-import re
-import smtplib
 from datetime import date, timedelta
 from io import BytesIO
+from urllib.parse import urlparse
 from urllib.error import HTTPError
 from unittest.mock import patch
 
@@ -16,8 +15,6 @@ from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import resolve, reverse
 from django.utils import timezone
-from celery.exceptions import Retry
-from kombu.exceptions import OperationalError as KombuOperationalError
 
 from .curriculum import LESSONS, get_tracks
 from .models import (
@@ -32,7 +29,6 @@ from .models import (
     DailyActivity,
     DiscussionPost,
     EarnedAchievement,
-    EmailOTP,
     LearnerProfile,
     LessonBookmark,
     LessonNote,
@@ -51,14 +47,6 @@ from .quizzes import quiz_for_track
 from .resources import RESOURCE_GROUPS
 from .services import TutorServiceError, get_ai_reply, run_python_code
 from .middleware import RequestAuditMiddleware
-from .otp import (
-    OTPDeliveryError,
-    OTPRequestLimited,
-    _otp_digest,
-    issue_otp,
-    verify_otp,
-)
-from .tasks import requeue_stale_otp_emails, send_otp_email_task
 from .views import make_tutor_reply
 
 
@@ -70,17 +58,6 @@ class LearningPlatformTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="learner", password="safe-test-password")
         self.client.force_login(self.user)
-
-    def _email_otp_code(self, message_index=-1):
-        match = re.search(r"(?<!\d)(\d{6})(?!\d)", mail.outbox[message_index].body)
-        self.assertIsNotNone(match)
-        return match.group(1)
-
-    def _verify_signup_code(self):
-        return self.client.post(
-            reverse("verify_registration"),
-            {"code": self._email_otp_code()},
-        )
 
     def test_seeded_course_content_is_database_backed_and_repeatable(self):
         course_count = Course.objects.count()
@@ -803,14 +780,7 @@ class LearningPlatformTests(TestCase):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "1 day current streak")
 
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
-    def test_signup_creates_inactive_user_until_otp_is_verified(self):
-        mail.outbox.clear()
+    def test_signup_creates_and_signs_in_a_learner(self):
         self.client.logout()
         response = self.client.post(
             reverse("signup"),
@@ -822,38 +792,51 @@ class LearningPlatformTests(TestCase):
             },
         )
 
-        self.assertRedirects(response, reverse("verify_registration"))
-        user = User.objects.get(username="new-learner")
-        self.assertFalse(user.is_active)
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].to, ["new-learner@example.test"])
-        code = self._email_otp_code()
-        self.assertIn(code, mail.outbox[0].body)
-
-        verified = self._verify_signup_code()
-
-        self.assertRedirects(verified, reverse("dashboard"))
-        user.refresh_from_db()
-        self.assertTrue(user.is_active)
-        self.assertEqual(
-            verify_otp(
-                user,
-                EmailOTP.Purpose.REGISTRATION,
-                user.email,
-                code,
-            )[0],
-            "invalid",
+        self.assertRedirects(response, reverse("dashboard"))
+        self.assertTrue(
+            User.objects.filter(username="new-learner").exists()
         )
+        self.assertTrue(User.objects.get(username="new-learner").is_active)
         self.assertEqual(self.client.get(reverse("dashboard")).status_code, 200)
 
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_password_reset_uses_a_link_and_updates_the_password(self):
+        self.client.logout()
+        reset_user = User.objects.create_user(
+            username="reset-learner",
+            email="reset-learner@example.test",
+            password="Original-safe-password-384!",
+        )
+
+        response = self.client.post(
+            reverse("password_reset"),
+            {"email": reset_user.email},
+        )
+
+        self.assertRedirects(response, reverse("password_reset_done"))
+        self.assertEqual(len(mail.outbox), 1)
+        reset_link = next(
+            line for line in mail.outbox[0].body.splitlines() if line.startswith("http")
+        )
+        reset_path = urlparse(reset_link).path
+        response = self.client.get(reset_path, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Choose a new password")
+
+        response = self.client.post(
+            response.request["PATH_INFO"],
+            {
+                "new_password1": "Updated-safe-password-384!",
+                "new_password2": "Updated-safe-password-384!",
+            },
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse("password_reset_complete"))
+        reset_user.refresh_from_db()
+        self.assertTrue(reset_user.check_password("Updated-safe-password-384!"))
+
     def test_two_accounts_can_share_username_and_log_in_by_email(self):
-        mail.outbox.clear()
         self.client.logout()
         first_password = "First-safe-password-384!"
         second_password = "Second-safe-password-384!"
@@ -868,12 +851,10 @@ class LearningPlatformTests(TestCase):
                 "password2": first_password,
             },
         )
-        self.assertRedirects(first_response, reverse("verify_registration"))
-        self.assertRedirects(self._verify_signup_code(), reverse("dashboard"))
+        self.assertRedirects(first_response, reverse("dashboard"))
         first_user = User.objects.get(email="user1@example.test")
 
         self.client.logout()
-        mail.outbox.clear()
         second_response = self.client.post(
             signup_url,
             {
@@ -883,8 +864,7 @@ class LearningPlatformTests(TestCase):
                 "password2": second_password,
             },
         )
-        self.assertRedirects(second_response, reverse("verify_registration"))
-        self.assertRedirects(self._verify_signup_code(), reverse("dashboard"))
+        self.assertRedirects(second_response, reverse("dashboard"))
         second_user = User.objects.get(email="user2@example.test")
         self.assertNotEqual(first_user.pk, second_user.pk)
 
@@ -929,661 +909,9 @@ class LearningPlatformTests(TestCase):
             },
         )
 
-        self.assertRedirects(response, reverse("verify_registration"))
-        self.assertContains(
-            self.client.get(reverse("verify_registration")),
-            "Enter the six-digit verification code if it arrived",
-        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "An account with this email address already exists.")
         self.assertEqual(User.objects.filter(email__iexact="learner@example.test").count(), 1)
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
-    def test_verification_uses_credentials_from_the_verifying_signup_session(self):
-        mail.outbox.clear()
-        attacker_password = "Attacker-selected-password-384!"
-        owner_password = "Email-owner-password-485!"
-        user = User.objects.create_user(
-            username="unverified-name",
-            email="owner@example.test",
-            password=attacker_password,
-            is_active=False,
-        )
-        self.client.logout()
-
-        self.client.post(
-            reverse("signup"),
-            {
-                "username": "email-owner-name",
-                "email": "owner@example.test",
-                "password1": owner_password,
-                "password2": owner_password,
-            },
-        )
-        verified = self.client.post(
-            reverse("verify_registration"),
-            {"code": self._email_otp_code()},
-        )
-
-        self.assertRedirects(verified, reverse("dashboard"))
-        user.refresh_from_db()
-        self.assertTrue(user.is_active)
-        self.assertEqual(user.username, "email-owner-name")
-        self.assertTrue(user.check_password(owner_password))
-        self.assertFalse(user.check_password(attacker_password))
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
-    def test_registration_otp_is_single_use_and_locks_after_five_wrong_attempts(self):
-        mail.outbox.clear()
-        self.client.logout()
-        self.client.post(
-            reverse("signup"),
-            {
-                "username": "otp-learner",
-                "email": "otp-learner@example.test",
-                "password1": "a-very-safe-password-384!",
-                "password2": "a-very-safe-password-384!",
-            },
-        )
-        user = User.objects.get(email="otp-learner@example.test")
-        challenge = EmailOTP.objects.get(
-            user=user,
-            purpose=EmailOTP.Purpose.REGISTRATION,
-        )
-        correct_code = self._email_otp_code()
-        incorrect_code = "000000" if correct_code != "000000" else "999999"
-
-        for _ in range(5):
-            response = self.client.post(
-                reverse("verify_registration"),
-                {"code": incorrect_code},
-            )
-            self.assertEqual(response.status_code, 200)
-
-        challenge.refresh_from_db()
-        self.assertEqual(challenge.attempts, 5)
-        self.assertIsNotNone(challenge.consumed_at)
-        self.assertFalse(user.is_active)
-        self.client.post(reverse("verify_registration"), {"code": correct_code})
-        user.refresh_from_db()
-        self.assertFalse(user.is_active)
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
-    def test_registration_otp_expiry_and_resend_invalidation(self):
-        mail.outbox.clear()
-        self.client.logout()
-        self.client.post(
-            reverse("signup"),
-            {
-                "username": "resend-learner",
-                "email": "resend-learner@example.test",
-                "password1": "a-very-safe-password-384!",
-                "password2": "a-very-safe-password-384!",
-            },
-        )
-        user = User.objects.get(email="resend-learner@example.test")
-        first_challenge = EmailOTP.objects.get(
-            user=user,
-            purpose=EmailOTP.Purpose.REGISTRATION,
-        )
-        first_code = self._email_otp_code()
-
-        self.client.post(
-            reverse("verify_registration"),
-            {"action": "resend"},
-        )
-        self.assertEqual(len(mail.outbox), 1)
-
-        EmailOTP.objects.filter(pk=first_challenge.pk).update(
-            created_at=timezone.now() - timedelta(seconds=61),
-            expires_at=timezone.now() - timedelta(seconds=1),
-        )
-        self.client.post(
-            reverse("verify_registration"),
-            {"action": "resend"},
-        )
-        self.assertEqual(len(mail.outbox), 2)
-        first_challenge.refresh_from_db()
-        self.assertIsNotNone(first_challenge.consumed_at)
-
-        second_code = self._email_otp_code()
-        self.assertNotEqual(first_code, second_code)
-        self.assertContains(
-            self.client.post(
-                reverse("verify_registration"),
-                {"code": first_code},
-            ),
-            "incorrect or no longer valid",
-        )
-        verified = self.client.post(
-            reverse("verify_registration"),
-            {"code": second_code},
-        )
-        self.assertRedirects(verified, reverse("dashboard"))
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
-    def test_registration_expired_otp_is_rejected(self):
-        mail.outbox.clear()
-        self.client.logout()
-        self.client.post(
-            reverse("signup"),
-            {
-                "username": "expired-learner",
-                "email": "expired-learner@example.test",
-                "password1": "a-very-safe-password-384!",
-                "password2": "a-very-safe-password-384!",
-            },
-        )
-        user = User.objects.get(email="expired-learner@example.test")
-        challenge = EmailOTP.objects.get(
-            user=user,
-            purpose=EmailOTP.Purpose.REGISTRATION,
-        )
-        code = self._email_otp_code()
-        EmailOTP.objects.filter(pk=challenge.pk).update(
-            expires_at=timezone.now() - timedelta(seconds=1),
-        )
-
-        response = self.client.post(
-            reverse("verify_registration"),
-            {"code": code},
-        )
-
-        self.assertContains(response, "That code has expired")
-        challenge.refresh_from_db()
-        self.assertIsNotNone(challenge.consumed_at)
-        user.refresh_from_db()
-        self.assertFalse(user.is_active)
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
-    def test_password_reset_and_account_recovery_use_distinct_otp_purposes(self):
-        mail.outbox.clear()
-        self.user.email = "learner@example.test"
-        self.user.save(update_fields=["email"])
-
-        response = self.client.post(
-            reverse("password_reset_request"),
-            {"email": self.user.email},
-        )
-        self.assertRedirects(response, reverse("password_reset_verify"))
-        reset_otp = EmailOTP.objects.get(
-            user=self.user,
-            purpose=EmailOTP.Purpose.PASSWORD_RESET,
-        )
-        reset_code = self._email_otp_code()
-        reset_response = self.client.post(
-            reverse("password_reset_verify"),
-            {
-                "code": reset_code,
-                "new_password1": "A-different-safe-password-485!",
-                "new_password2": "A-different-safe-password-485!",
-            },
-        )
-        self.assertRedirects(reset_response, reverse("login"))
-        self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password("A-different-safe-password-485!"))
-        self.assertIsNotNone(EmailOTP.objects.get(pk=reset_otp.pk).consumed_at)
-
-        response = self.client.post(
-            reverse("account_recovery_request"),
-            {"email": self.user.email},
-        )
-        self.assertRedirects(response, reverse("account_recovery_verify"))
-        recovery_code = self._email_otp_code()
-        self.assertTrue(
-            EmailOTP.objects.filter(
-                user=self.user,
-                purpose=EmailOTP.Purpose.ACCOUNT_RECOVERY,
-            ).exists()
-        )
-        recovery_response = self.client.post(
-            reverse("account_recovery_verify"),
-            {
-                "code": recovery_code,
-                "new_password1": "A-third-safe-password-586!",
-                "new_password2": "A-third-safe-password-586!",
-            },
-        )
-        self.assertRedirects(recovery_response, reverse("login"))
-        self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password("A-third-safe-password-586!"))
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
-    def test_unknown_password_reset_email_has_same_redirect_and_sends_no_email(self):
-        mail.outbox.clear()
-        unknown_response = self.client.post(
-            reverse("password_reset_request"),
-            {"email": "unknown@example.test"},
-        )
-        self.assertRedirects(unknown_response, reverse("password_reset_verify"))
-        self.assertEqual(len(mail.outbox), 0)
-
-        User.objects.create_user(
-            username="known-reset-user",
-            email="known@example.test",
-            password="Existing-safe-password-384!",
-        )
-        known_response = self.client.post(
-            reverse("password_reset_request"),
-            {"email": "known@example.test"},
-        )
-        self.assertEqual(known_response.status_code, unknown_response.status_code)
-        self.assertEqual(
-            known_response["Location"],
-            unknown_response["Location"],
-        )
-        self.assertEqual(len(mail.outbox), 1)
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
-    def test_email_change_keeps_old_address_until_otp_verification(self):
-        mail.outbox.clear()
-        self.user.email = "current@example.test"
-        self.user.save(update_fields=["email"])
-        response = self.client.post(
-            reverse("email_change_request"),
-            {
-                "new_email": "updated@example.test",
-                "current_password": "safe-test-password",
-            },
-        )
-        self.assertRedirects(response, reverse("verify_email_change"))
-        code = self._email_otp_code()
-        self.user.refresh_from_db()
-        self.assertEqual(self.user.email, "current@example.test")
-
-        verified = self.client.post(
-            reverse("verify_email_change"),
-            {"code": code},
-        )
-        self.assertRedirects(verified, reverse("profile"))
-        self.user.refresh_from_db()
-        self.assertEqual(self.user.email, "updated@example.test")
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
-    def test_email_provider_failure_leaves_registration_inactive_and_code_unusable(self):
-        mail.outbox.clear()
-        self.client.logout()
-        with patch(
-            "tutor.otp.EmailMultiAlternatives.send",
-            side_effect=smtplib.SMTPException("provider unavailable"),
-        ):
-            response = self.client.post(
-                reverse("signup"),
-                {
-                    "username": "mail-failure",
-                    "email": "mail-failure@example.test",
-                    "password1": "a-very-safe-password-384!",
-                    "password2": "a-very-safe-password-384!",
-                },
-            )
-
-        self.assertRedirects(response, reverse("verify_registration"))
-        user = User.objects.get(email="mail-failure@example.test")
-        self.assertFalse(user.is_active)
-        challenge = EmailOTP.objects.get(
-            user=user,
-            purpose=EmailOTP.Purpose.REGISTRATION,
-        )
-        self.assertIsNotNone(challenge.consumed_at)
-        self.assertEqual(len(mail.outbox), 0)
-        verification_page = self.client.get(reverse("verify_registration"))
-        self.assertContains(
-            verification_page,
-            "Enter the six-digit verification code if it arrived",
-        )
-        self.assertNotContains(verification_page, "Code sent to")
-        self.assertNotContains(verification_page, "has been sent")
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        EMAIL_HOST_USER="mailer@example.test",
-        EMAIL_HOST_PASSWORD="smtp-test-secret",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
-    def test_smtp_authentication_diagnostics_redact_credentials_and_otp(self):
-        otp_code = "123456"
-        with (
-            self.assertLogs("tutor.otp", level="ERROR") as captured_logs,
-            patch("tutor.otp._otp_code_for_challenge", return_value=otp_code),
-            patch("tutor.tasks._otp_code_for_challenge", return_value=otp_code),
-            patch(
-                "tutor.otp.EmailMultiAlternatives.send",
-                side_effect=smtplib.SMTPAuthenticationError(
-                    535,
-                    b"Username and Password not accepted for mailer@example.test",
-                ),
-            ),
-        ):
-            with self.assertRaises(OTPDeliveryError):
-                issue_otp(
-                    self.user,
-                    EmailOTP.Purpose.PASSWORD_RESET,
-                    target_email="learner@example.test",
-                )
-
-        log_output = "\n".join(captured_logs.output)
-        self.assertIn("smtp_code=535", log_output)
-        self.assertIn("Username and Password not accepted", log_output)
-        self.assertNotIn("mailer@example.test", log_output)
-        self.assertNotIn("smtp-test-secret", log_output)
-        self.assertNotIn(otp_code, log_output)
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-        CELERY_TASK_ALWAYS_EAGER=False,
-    )
-    def test_registration_queues_email_before_worker_sends_and_verifies_it(self):
-        mail.outbox.clear()
-        self.client.logout()
-
-        with patch("tutor.tasks.send_otp_email_task.apply_async") as enqueue:
-            response = self.client.post(
-                reverse("signup"),
-                {
-                    "username": "queued-learner",
-                    "email": "queued-learner@example.test",
-                    "password1": "a-very-safe-password-384!",
-                    "password2": "a-very-safe-password-384!",
-                },
-            )
-
-        self.assertRedirects(response, reverse("verify_registration"))
-        user = User.objects.get(email="queued-learner@example.test")
-        challenge = EmailOTP.objects.get(
-            user=user,
-            purpose=EmailOTP.Purpose.REGISTRATION,
-        )
-        self.assertEqual(challenge.delivery_status, EmailOTP.DeliveryStatus.QUEUED)
-        self.assertIsNotNone(challenge.delivery_enqueued_at)
-        self.assertEqual(mail.outbox, [])
-        enqueue.assert_called_once_with(args=[str(challenge.pk)])
-
-        result = send_otp_email_task.apply(args=[str(challenge.pk)], throw=True)
-        duplicate_result = send_otp_email_task.apply(
-            args=[str(challenge.pk)],
-            throw=True,
-        )
-
-        self.assertEqual(result.result, "accepted")
-        self.assertEqual(duplicate_result.result, EmailOTP.DeliveryStatus.ACCEPTED)
-        self.assertEqual(len(mail.outbox), 1)
-        challenge.refresh_from_db()
-        self.assertEqual(
-            challenge.delivery_status,
-            EmailOTP.DeliveryStatus.ACCEPTED,
-        )
-        self.assertEqual(challenge.delivery_attempts, 1)
-        code = self._email_otp_code()
-        self.assertEqual(_otp_digest(challenge.pk, code), challenge.otp_hash)
-        self.assertRedirects(
-            self.client.post(reverse("verify_registration"), {"code": code}),
-            reverse("dashboard"),
-        )
-        user.refresh_from_db()
-        self.assertTrue(user.is_active)
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-        CELERY_TASK_ALWAYS_EAGER=False,
-    )
-    def test_temporary_email_failure_is_retried_without_invalidating_otp(self):
-        challenge = EmailOTP.objects.create(
-            user=self.user,
-            purpose=EmailOTP.Purpose.PASSWORD_RESET,
-            target_email="learner@example.test",
-            otp_hash="x" * 64,
-            expires_at=timezone.now() + timedelta(minutes=5),
-            delivery_status=EmailOTP.DeliveryStatus.QUEUED,
-        )
-        retry_exception = Retry()
-
-        with (
-            patch(
-                "tutor.tasks._send_otp_email",
-                side_effect=OTPDeliveryError(
-                    "temporary SMTP response",
-                    retryable=True,
-                    error_code="smtp_421",
-                ),
-            ),
-            patch.object(
-                send_otp_email_task,
-                "retry",
-                side_effect=retry_exception,
-            ) as retry,
-        ):
-            with self.assertRaises(Retry):
-                send_otp_email_task.run(str(challenge.pk))
-
-        challenge.refresh_from_db()
-        self.assertEqual(challenge.delivery_status, EmailOTP.DeliveryStatus.QUEUED)
-        self.assertEqual(challenge.delivery_attempts, 1)
-        self.assertEqual(challenge.delivery_error, "smtp_421")
-        self.assertIsNone(challenge.consumed_at)
-        self.assertEqual(retry.call_args.kwargs["countdown"], 5)
-
-    def test_stale_otp_queue_entries_are_recovered_and_expired_entries_closed(self):
-        now = timezone.now()
-        stale_challenge = EmailOTP.objects.create(
-            user=self.user,
-            purpose=EmailOTP.Purpose.PASSWORD_RESET,
-            target_email="learner@example.test",
-            otp_hash="x" * 64,
-            expires_at=now + timedelta(minutes=5),
-            delivery_status=EmailOTP.DeliveryStatus.QUEUED,
-            delivery_enqueued_at=now - timedelta(minutes=2),
-        )
-        expired_challenge = EmailOTP.objects.create(
-            user=self.user,
-            purpose=EmailOTP.Purpose.ACCOUNT_RECOVERY,
-            target_email="learner@example.test",
-            otp_hash="y" * 64,
-            expires_at=now - timedelta(seconds=1),
-            delivery_status=EmailOTP.DeliveryStatus.QUEUED,
-        )
-
-        with patch("tutor.tasks.send_otp_email_task.apply_async") as enqueue:
-            recovered_count = requeue_stale_otp_emails()
-
-        self.assertEqual(recovered_count, 1)
-        enqueue.assert_called_once_with(
-            args=[str(stale_challenge.pk)],
-            task_id=f"otp-{stale_challenge.pk}",
-            expires=stale_challenge.expires_at,
-        )
-        stale_challenge.refresh_from_db()
-        expired_challenge.refresh_from_db()
-        self.assertGreater(stale_challenge.delivery_enqueued_at, now)
-        self.assertEqual(
-            expired_challenge.delivery_status,
-            EmailOTP.DeliveryStatus.FAILED,
-        )
-        self.assertIsNotNone(expired_challenge.consumed_at)
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-        CELERY_TASK_ALWAYS_EAGER=False,
-    )
-    def test_queue_failure_invalidates_the_undeliverable_otp(self):
-        with (
-            patch(
-                "tutor.tasks.send_otp_email_task.apply_async",
-                side_effect=KombuOperationalError("broker unavailable"),
-            ),
-            self.assertRaises(OTPDeliveryError),
-        ):
-            issue_otp(
-                self.user,
-                EmailOTP.Purpose.PASSWORD_RESET,
-                target_email="learner@example.test",
-            )
-
-        challenge = EmailOTP.objects.get(
-            user=self.user,
-            purpose=EmailOTP.Purpose.PASSWORD_RESET,
-        )
-        self.assertEqual(challenge.delivery_status, EmailOTP.DeliveryStatus.FAILED)
-        self.assertIsNotNone(challenge.consumed_at)
-
-    @override_settings(
-        DEBUG=False,
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
-    def test_missing_production_smtp_is_rate_limited_and_invalidates_the_code(self):
-        request = RequestFactory().post(
-            "/accounts/password-reset/",
-            REMOTE_ADDR="192.0.2.23",
-        )
-        with self.assertRaises(OTPDeliveryError):
-            issue_otp(
-                self.user,
-                EmailOTP.Purpose.PASSWORD_RESET,
-                target_email="learner@example.test",
-                request=request,
-            )
-
-        challenge = EmailOTP.objects.get(
-            user=self.user,
-            purpose=EmailOTP.Purpose.PASSWORD_RESET,
-        )
-        self.assertIsNotNone(challenge.consumed_at)
-        with self.assertRaises(OTPRequestLimited):
-            issue_otp(
-                self.user,
-                EmailOTP.Purpose.PASSWORD_RESET,
-                target_email="learner@example.test",
-                request=request,
-            )
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
-    def test_otp_user_request_limit_is_enforced(self):
-        mail.outbox.clear()
-        challenge = issue_otp(
-            self.user,
-            EmailOTP.Purpose.PASSWORD_RESET,
-            target_email="learner@example.test",
-            request=RequestFactory().post(
-                "/accounts/password-reset/",
-                REMOTE_ADDR="192.0.2.21",
-            ),
-        )
-        for _ in range(4):
-            EmailOTP.objects.filter(pk=challenge.pk).update(
-                created_at=timezone.now() - timedelta(seconds=61),
-            )
-            challenge = issue_otp(
-                self.user,
-                EmailOTP.Purpose.PASSWORD_RESET,
-                target_email="learner@example.test",
-                request=RequestFactory().post(
-                    "/accounts/password-reset/",
-                    REMOTE_ADDR="192.0.2.21",
-                ),
-            )
-
-        EmailOTP.objects.filter(pk=challenge.pk).update(
-            created_at=timezone.now() - timedelta(seconds=61),
-        )
-        with self.assertRaises(OTPRequestLimited):
-            issue_otp(
-                self.user,
-                EmailOTP.Purpose.PASSWORD_RESET,
-                target_email="learner@example.test",
-                request=RequestFactory().post(
-                    "/accounts/password-reset/",
-                    REMOTE_ADDR="192.0.2.21",
-                ),
-            )
-
-    @override_settings(
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        EMAIL_HOST="smtp.test",
-        DEFAULT_FROM_EMAIL="PyPath <no-reply@example.test>",
-        SUPPORT_EMAIL="support@example.test",
-    )
-    def test_otp_ip_request_limit_is_enforced_across_accounts(self):
-        mail.outbox.clear()
-        request = RequestFactory().post(
-            "/accounts/password-reset/",
-            REMOTE_ADDR="192.0.2.22",
-        )
-        another_user = User.objects.create_user(
-            username="another-ip-limit-user",
-            email="another-ip-limit-user@example.test",
-            password="Another-safe-password-384!",
-        )
-
-        with patch("tutor.otp.OTP_MAX_IP_REQUESTS_PER_HOUR", 1):
-            issue_otp(
-                self.user,
-                EmailOTP.Purpose.PASSWORD_RESET,
-                target_email="learner@example.test",
-                request=request,
-            )
-            with self.assertRaises(OTPRequestLimited):
-                issue_otp(
-                    another_user,
-                    EmailOTP.Purpose.PASSWORD_RESET,
-                    target_email=another_user.email,
-                    request=request,
-                )
 
     def test_curriculum_spans_all_tracks_and_keeps_slugs_unique(self):
         slugs = [lesson["slug"] for lesson in LESSONS]

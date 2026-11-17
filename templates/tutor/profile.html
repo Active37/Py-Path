@@ -43,11 +43,6 @@
     </div>
   </div>
 </section>
-<section class="feature-card profile-email">
-  <h2>Email address</h2>
-  <p class="muted">Current address: {{ user.email }}</p>
-  <a class="button button-secondary" href="{% url 'email_change_request' %}">Change email address</a>
-</section>
 <section class="feature-card profile-activity">
   <h2>Learning activity · last 12 weeks</h2>
   {% include "tutor/_activity_calendar.html" %}

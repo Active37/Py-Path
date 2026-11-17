@@ -9,6 +9,7 @@ from xml.sax.saxutils import escape
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
@@ -29,6 +30,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 from .achievements import ACHIEVEMENTS, refresh_achievements
 from .catalog import get_lesson, get_lessons, get_tracks
 from .curriculum import LESSONS
+from .forms import LearnerCreationForm
 from .models import (
     AssignmentSubmission,
     CareerPracticeResponse,
@@ -57,7 +59,6 @@ from .models import (
     TutorMessage,
     UserSubscription,
 )
-from .otp_views import signup as signup_with_email_verification
 from .projects import PROJECTS, get_project
 from .quizzes import quiz_for_track
 from .resources import RESOURCE_GROUPS
@@ -82,7 +83,15 @@ def home(request):
 
 
 def signup(request):
-    return signup_with_email_verification(request)
+    if request.user.is_authenticated:
+        return redirect("dashboard")
+    form = LearnerCreationForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        user = form.save()
+        logger.info("Learner account created (user_id=%s)", user.pk)
+        login(request, user)
+        return redirect("dashboard")
+    return render(request, "registration/signup.html", {"form": form})
 
 
 @login_required
