@@ -19,28 +19,5 @@ urlpatterns = [
     ),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("accounts/signup/", views.signup, name="signup"),
-    path(
-        "accounts/password-reset/",
-        auth_views.PasswordResetView.as_view(
-            email_template_name="registration/password_reset_email.txt",
-            subject_template_name="registration/password_reset_subject.txt",
-        ),
-        name="password_reset",
-    ),
-    path(
-        "accounts/password-reset/done/",
-        auth_views.PasswordResetDoneView.as_view(),
-        name="password_reset_done",
-    ),
-    path(
-        "accounts/reset/<uidb64>/<token>/",
-        auth_views.PasswordResetConfirmView.as_view(),
-        name="password_reset_confirm",
-    ),
-    path(
-        "accounts/reset/done/",
-        auth_views.PasswordResetCompleteView.as_view(),
-        name="password_reset_complete",
-    ),
     path("learn/", include("tutor.urls")),
 ]

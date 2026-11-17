@@ -1,13 +1,11 @@
 import json
 from datetime import date, timedelta
 from io import BytesIO
-from urllib.parse import urlparse
 from urllib.error import HTTPError
 from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.core import mail
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.contrib.staticfiles.finders import find
@@ -799,42 +797,10 @@ class LearningPlatformTests(TestCase):
         self.assertTrue(User.objects.get(username="new-learner").is_active)
         self.assertEqual(self.client.get(reverse("dashboard")).status_code, 200)
 
-    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
-    def test_password_reset_uses_a_link_and_updates_the_password(self):
-        self.client.logout()
-        reset_user = User.objects.create_user(
-            username="reset-learner",
-            email="reset-learner@example.test",
-            password="Original-safe-password-384!",
-        )
+    def test_password_reset_email_route_is_removed(self):
+        response = self.client.get("/accounts/password-reset/")
 
-        response = self.client.post(
-            reverse("password_reset"),
-            {"email": reset_user.email},
-        )
-
-        self.assertRedirects(response, reverse("password_reset_done"))
-        self.assertEqual(len(mail.outbox), 1)
-        reset_link = next(
-            line for line in mail.outbox[0].body.splitlines() if line.startswith("http")
-        )
-        reset_path = urlparse(reset_link).path
-        response = self.client.get(reset_path, follow=True)
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Choose a new password")
-
-        response = self.client.post(
-            response.request["PATH_INFO"],
-            {
-                "new_password1": "Updated-safe-password-384!",
-                "new_password2": "Updated-safe-password-384!",
-            },
-            follow=True,
-        )
-
-        self.assertRedirects(response, reverse("password_reset_complete"))
-        reset_user.refresh_from_db()
-        self.assertTrue(reset_user.check_password("Updated-safe-password-384!"))
+        self.assertEqual(response.status_code, 404)
 
     def test_two_accounts_can_share_username_and_log_in_by_email(self):
         self.client.logout()

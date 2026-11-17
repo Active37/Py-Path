@@ -86,10 +86,6 @@ AI_API_TIMEOUT=60
 
 `AI_API_TIMEOUT` is the maximum wait in seconds for the provider (default 60). Restart Django after changing environment variables. Set either `AI_API_KEY` or `GEMINI_API_KEY` on the server; `AI_API_KEY` takes precedence. Keep API keys out of browser code and GitHub. Tutor hints and quizzes use course material and do not require an AI API key.
 
-## Password reset
-
-Learners use the standard password reset link sent to the email address on their account. Configure SMTP in the environment with `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS` or `EMAIL_USE_SSL`, `DEFAULT_FROM_EMAIL`, and `EMAIL_TIMEOUT`. For Gmail, use `smtp.gmail.com`, port `587`, and STARTTLS (`EMAIL_USE_TLS=true`, `EMAIL_USE_SSL=false`). Keep SMTP credentials out of Git.
-
 ## Run tests
 
 ```powershell
@@ -110,7 +106,6 @@ PyPath serves the UI, backend, and static assets from one Django web service. Ne
    - `DATABASE_URL`: Neon’s **pooled** PostgreSQL connection URL for app requests.
    - `DATABASE_URL_UNPOOLED`: Neon’s **direct** PostgreSQL connection URL for migrations and seeding.
    - `AI_API_KEY` or `GEMINI_API_KEY`: your Gemini API key. `AI_API_KEY` takes precedence if both are set.
-   - SMTP settings above to enable password reset email delivery.
    - `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, and `DJANGO_SUPERUSER_PASSWORD`: set all three in Render’s environment settings to bootstrap the first admin account.
 4. Let Render generate `DJANGO_SECRET_KEY`. The Blueprint sets `DJANGO_DEBUG=0`; Django uses the Render hostname automatically.
 5. Review the build logs. When the deployment succeeds, open the Render service URL and test the site.
